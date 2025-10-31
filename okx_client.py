@@ -1,0 +1,280 @@
+import os
+import okx.Account as Account
+import okx.Trade as Trade
+import okx.MarketData as MarketData
+import okx.PublicData as PublicData
+from typing import Dict, Optional, List
+
+class OKXTestnetClient:
+    def __init__(self):
+        self.api_key = None
+        self.api_secret = None
+        self.passphrase = None
+        self.flag = "1"
+        
+        self.account_api = None
+        self.trade_api = None
+        self.market_api = None
+        self.public_api = None
+        
+        self._load_credentials()
+        
+        if self.api_key and self.api_secret and self.passphrase:
+            try:
+                self.account_api = Account.AccountAPI(
+                    self.api_key,
+                    self.api_secret,
+                    self.passphrase,
+                    False,
+                    self.flag
+                )
+                self.trade_api = Trade.TradeAPI(
+                    self.api_key,
+                    self.api_secret,
+                    self.passphrase,
+                    False,
+                    self.flag
+                )
+                self.market_api = MarketData.MarketAPI(
+                    self.api_key,
+                    self.api_secret,
+                    self.passphrase,
+                    False,
+                    self.flag
+                )
+                self.public_api = PublicData.PublicAPI(
+                    self.api_key,
+                    self.api_secret,
+                    self.passphrase,
+                    False,
+                    self.flag
+                )
+            except Exception as e:
+                print(f"Warning: Failed to initialize OKX client: {e}")
+                self.account_api = None
+    
+    def _load_credentials(self):
+        self.api_key = os.getenv("OKX_DEMO_API_KEY")
+        self.api_secret = os.getenv("OKX_DEMO_API_SECRET")
+        self.passphrase = os.getenv("OKX_DEMO_PASSPHRASE")
+        
+        if not self.api_key or not self.api_secret or not self.passphrase:
+            try:
+                from database import SessionLocal, APICredentials
+                db = SessionLocal()
+                try:
+                    creds = db.query(APICredentials).first()
+                    if creds:
+                        self.api_key, self.api_secret, self.passphrase = creds.get_credentials()
+                finally:
+                    db.close()
+            except Exception as e:
+                pass
+    
+    def is_configured(self) -> bool:
+        return (self.account_api is not None and 
+                self.api_key is not None and 
+                self.api_secret is not None and 
+                self.passphrase is not None)
+    
+    def convert_symbol_to_okx(self, symbol: str) -> str:
+        symbol = symbol.upper().replace("USDT", "")
+        return f"{symbol}-USDT-SWAP"
+    
+    def set_position_mode(self, mode: str = "long_short_mode") -> bool:
+        if not self.account_api:
+            return False
+        try:
+            result = self.account_api.set_position_mode(posMode=mode)
+            if result.get('code') == '0':
+                return True
+            if 'Position mode is already set' in str(result):
+                return True
+            return False
+        except Exception as e:
+            if 'Position mode is already set' in str(e):
+                return True
+            print(f"Error setting position mode: {e}")
+            return False
+    
+    def set_leverage(self, symbol: str, leverage: int, position_side: str = "long") -> bool:
+        if not self.account_api:
+            return False
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.account_api.set_leverage(
+                instId=inst_id,
+                lever=str(leverage),
+                mgnMode="cross",
+                posSide=position_side
+            )
+            return result.get('code') == '0'
+        except Exception as e:
+            print(f"Error setting leverage: {e}")
+            return False
+    
+    def get_symbol_price(self, symbol: str) -> Optional[float]:
+        if not self.market_api:
+            return None
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.market_api.get_ticker(instId=inst_id)
+            if result.get('code') == '0' and result.get('data'):
+                return float(result['data'][0]['last'])
+            return None
+        except Exception as e:
+            print(f"Error getting price: {e}")
+            return None
+    
+    def get_account_balance(self) -> Optional[Dict]:
+        if not self.account_api:
+            return None
+        try:
+            result = self.account_api.get_account_balance()
+            if result.get('code') == '0':
+                return result
+            return None
+        except Exception as e:
+            print(f"Error getting balance: {e}")
+            return None
+    
+    def place_market_order(self, symbol: str, side: str, quantity: float, position_side: str = "long") -> Optional[Dict]:
+        if not self.trade_api:
+            return None
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            
+            okx_side = "buy" if side.upper() == "LONG" else "sell"
+            okx_pos_side = "long" if side.upper() == "LONG" else "short"
+            
+            result = self.trade_api.place_order(
+                instId=inst_id,
+                tdMode="cross",
+                side=okx_side,
+                posSide=okx_pos_side,
+                ordType="market",
+                sz=str(int(quantity))
+            )
+            
+            if result.get('code') == '0' and result.get('data'):
+                return {
+                    'orderId': result['data'][0]['ordId'],
+                    'symbol': symbol,
+                    'side': side,
+                    'quantity': quantity
+                }
+            else:
+                print(f"Order failed: {result}")
+            return None
+        except Exception as e:
+            print(f"Error placing order: {e}")
+            return None
+    
+    def place_limit_order(self, symbol: str, side: str, quantity: float, price: float, position_side: str = "long") -> Optional[Dict]:
+        if not self.trade_api:
+            return None
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            okx_side = "buy" if side.upper() in ["LONG", "BUY"] else "sell"
+            
+            result = self.trade_api.place_order(
+                instId=inst_id,
+                tdMode="cross",
+                side=okx_side,
+                posSide=position_side,
+                ordType="limit",
+                px=str(price),
+                sz=str(int(quantity))
+            )
+            
+            if result.get('code') == '0' and result.get('data'):
+                return {
+                    'orderId': result['data'][0]['ordId'],
+                    'symbol': symbol
+                }
+            return None
+        except Exception as e:
+            print(f"Error placing limit order: {e}")
+            return None
+    
+    def get_position(self, symbol: str, position_side: str = "long") -> Optional[Dict]:
+        if not self.account_api:
+            return None
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.account_api.get_positions(instType="SWAP", instId=inst_id, posSide=position_side)
+            
+            if result.get('code') == '0' and result.get('data'):
+                if len(result['data']) > 0:
+                    pos = result['data'][0]
+                    return {
+                        'positionAmt': pos.get('pos', '0'),
+                        'entryPrice': pos.get('avgPx', '0'),
+                        'unrealizedProfit': pos.get('upl', '0'),
+                        'leverage': pos.get('lever', '1')
+                    }
+            return {'positionAmt': '0'}
+        except Exception as e:
+            print(f"Error getting position: {e}")
+            return None
+    
+    def get_all_positions(self) -> list:
+        if not self.account_api:
+            return []
+        try:
+            result = self.account_api.get_positions(instType="SWAP")
+            if result.get('code') == '0' and result.get('data'):
+                active_positions = [
+                    pos for pos in result['data']
+                    if float(pos.get('pos', 0)) != 0
+                ]
+                return active_positions
+            return []
+        except Exception as e:
+            print(f"Error getting positions: {e}")
+            return []
+    
+    def cancel_order(self, symbol: str, order_id: str) -> bool:
+        if not self.trade_api:
+            return False
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.trade_api.cancel_order(instId=inst_id, ordId=order_id)
+            return result.get('code') == '0'
+        except Exception as e:
+            print(f"Error canceling order: {e}")
+            return False
+    
+    def get_order(self, symbol: str, order_id: str) -> Optional[Dict]:
+        if not self.trade_api:
+            return None
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.trade_api.get_order(instId=inst_id, ordId=order_id)
+            
+            if result.get('code') == '0' and result.get('data'):
+                order = result['data'][0]
+                return {
+                    'orderId': order.get('ordId'),
+                    'status': order.get('state'),
+                    'executedQty': order.get('accFillSz', '0'),
+                    'avgPrice': order.get('avgPx', '0')
+                }
+            return None
+        except Exception as e:
+            print(f"Error getting order: {e}")
+            return None
+    
+    def get_account_trades(self, symbol: str, limit: int = 50) -> list:
+        if not self.trade_api:
+            return []
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.trade_api.get_fills(instType="SWAP", instId=inst_id, limit=str(limit))
+            
+            if result.get('code') == '0' and result.get('data'):
+                return list(result['data'])
+            return []
+        except Exception as e:
+            print(f"Error getting trades: {e}")
+            return []

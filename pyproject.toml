@@ -9,7 +9,7 @@ dependencies = [
     "cryptography>=46.0.3",
     "pandas>=2.3.3",
     "psycopg2-binary>=2.9.11",
-    "python-binance>=1.0.31",
+    "python-okx>=0.4.0",
     "sqlalchemy>=2.0.44",
     "streamlit>=1.51.0",
 ]

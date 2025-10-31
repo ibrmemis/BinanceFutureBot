@@ -33,19 +33,22 @@ class APICredentials(Base):
     id = Column(Integer, primary_key=True, index=True)
     api_key_encrypted = Column(Text, nullable=False)
     api_secret_encrypted = Column(Text, nullable=False)
+    passphrase_encrypted = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    def set_credentials(self, api_key: str, api_secret: str):
+    def set_credentials(self, api_key: str, api_secret: str, passphrase: str):
         cipher = get_cipher()
         self.api_key_encrypted = cipher.encrypt(api_key.encode()).decode()
         self.api_secret_encrypted = cipher.encrypt(api_secret.encode()).decode()
+        self.passphrase_encrypted = cipher.encrypt(passphrase.encode()).decode()
     
     def get_credentials(self) -> tuple:
         cipher = get_cipher()
         api_key = cipher.decrypt(self.api_key_encrypted.encode()).decode()
         api_secret = cipher.decrypt(self.api_secret_encrypted.encode()).decode()
-        return api_key, api_secret
+        passphrase = cipher.decrypt(self.passphrase_encrypted.encode()).decode()
+        return api_key, api_secret, passphrase
 
 class Position(Base):
     __tablename__ = "positions"
