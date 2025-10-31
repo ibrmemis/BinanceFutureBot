@@ -41,7 +41,7 @@ class BinanceTestnetClient:
                 pass
     
     def is_configured(self) -> bool:
-        return bool(self.client is not None and self.api_key and self.api_secret)
+        return self.client is not None and self.api_key is not None and self.api_secret is not None
     
     def set_hedge_mode(self) -> bool:
         if not self.client:
@@ -233,7 +233,7 @@ class BinanceTestnetClient:
             return []
         try:
             trades = self.client.futures_account_trades(symbol=symbol, limit=limit)
-            return trades
+            return list(trades) if trades else []
         except Exception as e:
             print(f"Error getting trades: {e}")
             return []

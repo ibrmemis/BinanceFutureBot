@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from typing import cast
 from database import init_db, SessionLocal, Position, APICredentials
 from binance_client import BinanceTestnetClient
 from trading_strategy import Try1Strategy
@@ -207,21 +208,25 @@ def show_active_positions_page():
                     col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 2, 1])
                     
                     with col1:
-                        st.metric("Coin", pos.symbol)
+                        st.metric("Coin", str(pos.symbol))
                     
                     with col2:
-                        direction_color = "🟢" if pos.side == "LONG" else "🔴"
-                        st.metric("Yön", f"{direction_color} {pos.side}")
+                        side_value = str(pos.side)
+                        direction_color = "🟢" if side_value == "LONG" else "🔴"
+                        st.metric("Yön", f"{direction_color} {side_value}")
                     
                     with col3:
-                        st.metric("Kaldıraç", f"{pos.leverage}x")
+                        leverage_val = cast(int, pos.leverage)
+                        st.metric("Kaldıraç", f"{leverage_val}x")
                     
                     with col4:
-                        st.metric("Miktar", f"${pos.amount_usdt:.2f}")
+                        amount_val = cast(float, pos.amount_usdt)
+                        st.metric("Miktar", f"${amount_val:.2f}")
                     
                     with col5:
-                        if pos.reopen_count > 0:
-                            st.metric("Yeniden Açılma", pos.reopen_count)
+                        reopen_val = cast(int, pos.reopen_count) if pos.reopen_count is not None else 0
+                        if reopen_val > 0:
+                            st.metric("Yeniden Açılma", reopen_val)
                     
                     col1, col2, col3, col4 = st.columns(4)
                     
@@ -258,9 +263,9 @@ def show_history_page():
         if not closed_positions:
             st.info("Henüz kapanmış pozisyon bulunmuyor.")
         else:
-            total_pnl = sum([pos.pnl or 0 for pos in closed_positions])
-            winning_trades = len([pos for pos in closed_positions if (pos.pnl or 0) > 0])
-            losing_trades = len([pos for pos in closed_positions if (pos.pnl or 0) < 0])
+            total_pnl = sum([(cast(float, pos.pnl) if pos.pnl is not None else 0.0) for pos in closed_positions])
+            winning_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) > 0])
+            losing_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) < 0])
             
             col1, col2, col3, col4 = st.columns(4)
             
@@ -282,16 +287,16 @@ def show_history_page():
             data = []
             for pos in closed_positions:
                 data.append({
-                    "Coin": pos.symbol,
-                    "Yön": pos.side,
-                    "Miktar": f"${pos.amount_usdt:.2f}",
-                    "Kaldıraç": f"{pos.leverage}x",
-                    "Giriş": f"${pos.entry_price:.4f}" if pos.entry_price else "-",
-                    "PnL": f"${pos.pnl:.2f}" if pos.pnl else "-",
-                    "Kapanış Nedeni": pos.close_reason or "-",
+                    "Coin": str(pos.symbol),
+                    "Yön": str(pos.side),
+                    "Miktar": f"${cast(float, pos.amount_usdt):.2f}",
+                    "Kaldıraç": f"{cast(int, pos.leverage)}x",
+                    "Giriş": f"${cast(float, pos.entry_price):.4f}" if pos.entry_price is not None else "-",
+                    "PnL": f"${cast(float, pos.pnl):.2f}" if pos.pnl is not None else "-",
+                    "Kapanış Nedeni": str(pos.close_reason) if pos.close_reason is not None else "-",
                     "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M'),
-                    "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at else "-",
-                    "Yeniden Açılma": pos.reopen_count
+                    "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at is not None else "-",
+                    "Yeniden Açılma": cast(int, pos.reopen_count)
                 })
             
             df = pd.DataFrame(data)
