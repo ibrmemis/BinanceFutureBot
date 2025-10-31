@@ -42,7 +42,7 @@ def main():
         st.info("""
         **API Anahtarlarını Yapılandırma:**
         
-        1. Binance Testnet'e gidin: https://testnet.binancefuture.com
+        1. Binance Testnet'e gidin: https://demo.binance.com
         2. API anahtarlarınızı oluşturun
         3. Replit Secrets bölümünden aşağıdaki değişkenleri ekleyin:
            - `BINANCE_TESTNET_API_KEY`
@@ -374,8 +374,8 @@ def show_settings_page():
     st.subheader("🌐 Binance Testnet Bilgileri")
     
     st.markdown("""
-    - **Testnet URL:** https://testnet.binancefuture.com
-    - **API Endpoint:** testnet.binancefuture.com
+    - **Testnet URL:** https://demo.binance.com
+    - **API Endpoint:** demo.binance.com
     - **Mod:** Futures Testnet (Demo Trading)
     - **Ülke:** Avrupa sunucuları üzerinden erişim
     """)
