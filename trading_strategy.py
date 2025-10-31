@@ -127,12 +127,18 @@ class Try1Strategy:
             open_positions = db.query(Position).filter(Position.is_open == True).all()
             
             for pos in open_positions:
-                position_side = pos.position_side or ("LONG" if pos.side == "LONG" else "SHORT")
+                if pos.position_side:
+                    position_side = pos.position_side
+                else:
+                    position_side = "LONG" if pos.side == "LONG" else "SHORT"
                 binance_pos = self.client.get_position(pos.symbol, position_side)
                 
                 if binance_pos and float(binance_pos['positionAmt']) == 0:
-                    pos.is_open = False
-                    pos.closed_at = datetime.utcnow()
+                    db.query(Position).filter(Position.id == pos.id).update({
+                        'is_open': False,
+                        'closed_at': datetime.utcnow()
+                    })
+                    db.flush()
                     
                     realized_pnl = 0.0
                     close_reason = "MANUAL"
@@ -192,8 +198,10 @@ class Try1Strategy:
                                     realized_pnl += float(trade['realizedPnl'])
                                     found_close_trade = True
                     
-                    pos.pnl = realized_pnl
-                    pos.close_reason = close_reason
+                    db.query(Position).filter(Position.id == pos.id).update({
+                        'pnl': realized_pnl,
+                        'close_reason': close_reason
+                    })
                     
                     db.commit()
             
