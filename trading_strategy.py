@@ -127,7 +127,7 @@ class Try1Strategy:
             open_positions = db.query(Position).filter(Position.is_open == True).all()
             
             for pos in open_positions:
-                if pos.position_side:
+                if pos.position_side is not None:
                     position_side = pos.position_side
                 else:
                     position_side = "LONG" if pos.side == "LONG" else "SHORT"
@@ -147,13 +147,13 @@ class Try1Strategy:
                     tp_filled = False
                     sl_filled = False
                     
-                    if pos.tp_order_id:
+                    if pos.tp_order_id is not None:
                         tp_order = self.client.get_order(pos.symbol, pos.tp_order_id)
                         if tp_order and tp_order.get('status') == 'FILLED':
                             tp_filled = True
                             close_reason = "TP"
                     
-                    if pos.sl_order_id:
+                    if pos.sl_order_id is not None:
                         sl_order = self.client.get_order(pos.symbol, pos.sl_order_id)
                         if sl_order and sl_order.get('status') == 'FILLED':
                             sl_filled = True
@@ -172,12 +172,12 @@ class Try1Strategy:
                         if trade['positionSide'] == position_side:
                             trade_order_id = str(trade.get('orderId'))
                             
-                            if pos.tp_order_id and trade_order_id == pos.tp_order_id:
+                            if pos.tp_order_id is not None and trade_order_id == pos.tp_order_id:
                                 realized_pnl = float(trade.get('realizedPnl', 0))
                                 close_reason = "TP"
                                 found_close_trade = True
                                 break
-                            elif pos.sl_order_id and trade_order_id == pos.sl_order_id:
+                            elif pos.sl_order_id is not None and trade_order_id == pos.sl_order_id:
                                 realized_pnl = float(trade.get('realizedPnl', 0))
                                 close_reason = "SL"
                                 found_close_trade = True
