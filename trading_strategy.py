@@ -34,9 +34,9 @@ class Try1Strategy:
         leverage: int,
         tp_usdt: float,
         sl_usdt: float,
-        parent_position_id: int = None,
+        parent_position_id: int | None = None,
         reopen_count: int = 0
-    ) -> tuple[bool, str, int]:
+    ) -> tuple[bool, str, int | None]:
         if not self.client.is_configured():
             return False, "Binance API anahtarları yapılandırılmamış", None
         
