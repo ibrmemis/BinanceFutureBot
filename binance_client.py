@@ -18,7 +18,7 @@ class BinanceTestnetClient:
                     self.api_secret,
                     testnet=True
                 )
-                self.client.API_URL = 'https://demo.binance.com'
+                self.client.API_URL = 'https://demo-fapi.binance.com'
             except Exception as e:
                 print(f"Warning: Failed to initialize Binance client: {e}")
                 self.client = None
