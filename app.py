@@ -3,13 +3,13 @@ import pandas as pd
 from datetime import datetime
 from typing import cast
 from database import init_db, SessionLocal, Position, APICredentials
-from binance_client import BinanceTestnetClient
+from okx_client import OKXTestnetClient
 from trading_strategy import Try1Strategy
 from background_scheduler import get_monitor
 import os
 
 st.set_page_config(
-    page_title="Binance Futures Trading Bot",
+    page_title="OKX Futures Trading Bot (Demo)",
     page_icon="📈",
     layout="wide"
 )
@@ -19,10 +19,11 @@ init_db()
 monitor = get_monitor()
 
 def check_api_keys():
-    api_key = os.getenv("BINANCE_TESTNET_API_KEY")
-    api_secret = os.getenv("BINANCE_TESTNET_API_SECRET")
+    api_key = os.getenv("OKX_DEMO_API_KEY")
+    api_secret = os.getenv("OKX_DEMO_API_SECRET")
+    passphrase = os.getenv("OKX_DEMO_PASSPHRASE")
     
-    if api_key and api_secret:
+    if api_key and api_secret and passphrase:
         return True
     
     db = SessionLocal()
@@ -35,37 +36,40 @@ def check_api_keys():
     return False
 
 def main():
-    st.title("📈 Binance Futures Trading Bot (Testnet)")
-    st.caption("demo.binance.com üzerinde çalışan otomatik futures trading botu")
+    st.title("📈 OKX Futures Trading Bot (Demo Trading)")
+    st.caption("OKX Demo Trading üzerinde çalışan otomatik futures trading botu")
     
     if not check_api_keys():
-        st.error("⚠️ Binance API anahtarları yapılandırılmamış!")
+        st.error("⚠️ OKX API anahtarları yapılandırılmamış!")
         st.info("""
         **API Anahtarlarını Yapılandırma:**
         
-        1. Binance Testnet'e gidin: https://demo.binance.com
-        2. API anahtarlarınızı oluşturun
-        3. Replit Secrets bölümünden aşağıdaki değişkenleri ekleyin:
-           - `BINANCE_TESTNET_API_KEY`
-           - `BINANCE_TESTNET_API_SECRET`
-        4. Sayfayı yenileyin
+        1. OKX hesabınıza giriş yapın: https://www.okx.com
+        2. Trade → Demo Trading → Personal Center
+        3. Demo Trading API → Create V5 API Key for Demo Trading
+        4. API Key, Secret Key ve Passphrase'i oluşturun
+        5. Aşağıdaki forma girin veya Replit Secrets'a ekleyin:
+           - `OKX_DEMO_API_KEY`
+           - `OKX_DEMO_API_SECRET`
+           - `OKX_DEMO_PASSPHRASE`
         """)
         
         with st.expander("🔧 API Key Kaydetme (Veritabanı)"):
             st.info("API anahtarlarınız şifrelenmiş olarak veritabanına kaydedilecek.")
             api_key_input = st.text_input("API Key", type="password", key="api_key_input")
             api_secret_input = st.text_input("API Secret", type="password", key="api_secret_input")
+            passphrase_input = st.text_input("Passphrase", type="password", key="passphrase_input")
             
             if st.button("Veritabanına Kaydet"):
-                if api_key_input and api_secret_input:
+                if api_key_input and api_secret_input and passphrase_input:
                     db = SessionLocal()
                     try:
                         creds = db.query(APICredentials).first()
                         if creds:
-                            creds.set_credentials(api_key_input, api_secret_input)
+                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
                         else:
                             creds = APICredentials()
-                            creds.set_credentials(api_key_input, api_secret_input)
+                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
                             db.add(creds)
                         db.commit()
                         st.success("✅ API anahtarları veritabanına kaydedildi! Sayfa yenileniyor...")
@@ -75,7 +79,7 @@ def main():
                     finally:
                         db.close()
                 else:
-                    st.warning("Lütfen her iki alanı da doldurun.")
+                    st.warning("Lütfen tüm alanları doldurun.")
         return
     
     tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📈 Geçmiş İşlemler", "⚙️ Ayarlar"])
@@ -307,22 +311,22 @@ def show_history_page():
 def show_settings_page():
     st.header("⚙️ Sistem Ayarları")
     
-    client = BinanceTestnetClient()
+    client = OKXTestnetClient()
     
     st.subheader("🔑 API Bağlantı Durumu")
     
     if client.is_configured():
-        st.success("✅ Binance API bağlantısı aktif")
+        st.success("✅ OKX API bağlantısı aktif")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔄 Hedge Mode'u Kontrol Et ve Aktifleştir"):
-                success = client.set_hedge_mode()
+            if st.button("🔄 Position Mode'u Kontrol Et ve Aktifleştir"):
+                success = client.set_position_mode("long_short_mode")
                 if success:
-                    st.success("✅ Hedge mode aktif")
+                    st.success("✅ Long/Short position mode aktif")
                 else:
-                    st.error("❌ Hedge mode aktif edilemedi")
+                    st.error("❌ Position mode aktif edilemedi")
         
         with col2:
             db = SessionLocal()
@@ -342,17 +346,18 @@ def show_settings_page():
         with st.expander("🔧 API Anahtarlarını Güncelle"):
             api_key_input = st.text_input("API Key", type="password", key="settings_api_key")
             api_secret_input = st.text_input("API Secret", type="password", key="settings_api_secret")
+            passphrase_input = st.text_input("Passphrase", type="password", key="settings_passphrase")
             
             if st.button("Kaydet ve Bağlan"):
-                if api_key_input and api_secret_input:
+                if api_key_input and api_secret_input and passphrase_input:
                     db = SessionLocal()
                     try:
                         creds = db.query(APICredentials).first()
                         if creds:
-                            creds.set_credentials(api_key_input, api_secret_input)
+                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
                         else:
                             creds = APICredentials()
-                            creds.set_credentials(api_key_input, api_secret_input)
+                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
                             db.add(creds)
                         db.commit()
                         st.success("✅ API anahtarları kaydedildi! Sayfa yenileniyor...")
@@ -376,13 +381,13 @@ def show_settings_page():
     
     st.divider()
     
-    st.subheader("🌐 Binance Testnet Bilgileri")
+    st.subheader("🌐 OKX Demo Trading Bilgileri")
     
     st.markdown("""
-    - **Testnet URL:** https://demo.binance.com
-    - **API Endpoint:** demo.binance.com
-    - **Mod:** Futures Testnet (Demo Trading)
-    - **Ülke:** Avrupa sunucuları üzerinden erişim
+    - **Demo Trading URL:** https://www.okx.com/trade-demo
+    - **API Endpoint:** https://www.okx.com/api/v5
+    - **Mod:** Demo Trading (Simüle Edilmiş İşlemler)
+    - **Avantaj:** Coğrafi kısıtlama yok, global erişim
     """)
     
     st.divider()

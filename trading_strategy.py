@@ -1,30 +1,20 @@
 from datetime import datetime
-from binance_client import BinanceTestnetClient
+from okx_client import OKXTestnetClient
 from database import SessionLocal, Position
 
 class Try1Strategy:
     def __init__(self):
-        self.client = BinanceTestnetClient()
+        self.client = OKXTestnetClient()
     
-    def calculate_tp_sl_prices(
-        self, 
-        entry_price: float, 
-        side: str, 
-        tp_usdt: float, 
-        sl_usdt: float, 
-        quantity: float
-    ) -> tuple:
-        pnl_per_unit_tp = tp_usdt / quantity
-        pnl_per_unit_sl = sl_usdt / quantity
-        
-        if side == "LONG":
-            tp_price = entry_price + pnl_per_unit_tp
-            sl_price = entry_price - pnl_per_unit_sl
-        else:
-            tp_price = entry_price - pnl_per_unit_tp
-            sl_price = entry_price + pnl_per_unit_sl
-        
-        return tp_price, sl_price
+    def calculate_quantity_for_usdt(
+        self,
+        amount_usdt: float,
+        leverage: int,
+        current_price: float
+    ) -> int:
+        total_value = amount_usdt * leverage
+        contracts = int(total_value / current_price)
+        return max(1, contracts)
     
     def open_position(
         self,
@@ -38,26 +28,24 @@ class Try1Strategy:
         reopen_count: int = 0
     ) -> tuple[bool, str, int | None]:
         if not self.client.is_configured():
-            return False, "Binance API anahtarları yapılandırılmamış", None
+            return False, "OKX API anahtarları yapılandırılmamış", None
         
-        self.client.set_hedge_mode()
-        self.client.set_leverage(symbol, leverage)
-        self.client.set_margin_type(symbol, "CROSSED")
+        self.client.set_position_mode("long_short_mode")
+        
+        position_side = "long" if side == "LONG" else "short"
+        self.client.set_leverage(symbol, leverage, position_side)
         
         current_price = self.client.get_symbol_price(symbol)
         if not current_price:
             return False, "Fiyat alınamadı", None
         
-        quantity = self.client.calculate_quantity(symbol, amount_usdt, leverage, current_price)
+        quantity = self.calculate_quantity_for_usdt(amount_usdt, leverage, current_price)
         if quantity == 0:
             return False, "Geçersiz miktar", None
         
-        position_side = "LONG" if side == "LONG" else "SHORT"
-        order_side = "BUY" if side == "LONG" else "SELL"
-        
-        order = self.client.open_market_order(
+        order = self.client.place_market_order(
             symbol=symbol,
-            side=order_side,
+            side=side,
             quantity=quantity,
             position_side=position_side
         )
@@ -65,33 +53,7 @@ class Try1Strategy:
         if not order:
             return False, "Emir açılamadı", None
         
-        entry_price = float(order.get('avgPrice', current_price))
-        
-        tp_price, sl_price = self.calculate_tp_sl_prices(
-            entry_price, side, tp_usdt, sl_usdt, quantity
-        )
-        
-        tp_side = "SELL" if side == "LONG" else "BUY"
-        sl_side = "SELL" if side == "LONG" else "BUY"
-        
-        tp_order = self.client.set_take_profit(
-            symbol=symbol,
-            side=tp_side,
-            position_side=position_side,
-            quantity=quantity,
-            stop_price=tp_price
-        )
-        
-        sl_order = self.client.set_stop_loss(
-            symbol=symbol,
-            side=sl_side,
-            position_side=position_side,
-            quantity=quantity,
-            stop_price=sl_price
-        )
-        
-        tp_order_id = str(tp_order['orderId']) if tp_order else None
-        sl_order_id = str(sl_order['orderId']) if sl_order else None
+        entry_price = current_price
         
         db = SessionLocal()
         try:
@@ -104,10 +66,8 @@ class Try1Strategy:
                 sl_usdt=sl_usdt,
                 entry_price=entry_price,
                 quantity=quantity,
-                order_id=str(order['orderId']),
+                order_id=str(order.get('orderId')),
                 position_side=position_side,
-                tp_order_id=tp_order_id,
-                sl_order_id=sl_order_id,
                 is_open=True,
                 reopen_count=reopen_count,
                 parent_position_id=parent_position_id
@@ -115,13 +75,21 @@ class Try1Strategy:
             db.add(position)
             db.commit()
             db.refresh(position)
+            
             position_id = position.id
+            
+            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}", position_id
+        except Exception as e:
+            db.rollback()
+            return False, f"Veritabanı hatası: {e}", None
         finally:
             db.close()
-        
-        return True, f"Pozisyon açıldı: {symbol} {side} {quantity} @ {entry_price}", position_id
     
     def check_and_update_positions(self):
+        if not self.client.is_configured():
+            print("OKX client not configured")
+            return
+        
         db = SessionLocal()
         try:
             open_positions = db.query(Position).filter(Position.is_open == True).all()
@@ -130,10 +98,11 @@ class Try1Strategy:
                 if pos.position_side is not None:
                     position_side = pos.position_side
                 else:
-                    position_side = "LONG" if pos.side == "LONG" else "SHORT"
-                binance_pos = self.client.get_position(pos.symbol, position_side)
+                    position_side = "long" if pos.side == "LONG" else "short"
+                    
+                okx_pos = self.client.get_position(pos.symbol, position_side)
                 
-                if binance_pos and float(binance_pos['positionAmt']) == 0:
+                if okx_pos and float(okx_pos['positionAmt']) == 0:
                     db.query(Position).filter(Position.id == pos.id).update({
                         'is_open': False,
                         'closed_at': datetime.utcnow()
@@ -142,61 +111,29 @@ class Try1Strategy:
                     
                     realized_pnl = 0.0
                     close_reason = "MANUAL"
-                    found_close_trade = False
-                    
-                    tp_filled = False
-                    sl_filled = False
-                    
-                    if pos.tp_order_id is not None:
-                        tp_order = self.client.get_order(pos.symbol, pos.tp_order_id)
-                        if tp_order and tp_order.get('status') == 'FILLED':
-                            tp_filled = True
-                            close_reason = "TP"
-                    
-                    if pos.sl_order_id is not None:
-                        sl_order = self.client.get_order(pos.symbol, pos.sl_order_id)
-                        if sl_order and sl_order.get('status') == 'FILLED':
-                            sl_filled = True
-                            close_reason = "SL"
                     
                     trades = self.client.get_account_trades(pos.symbol, limit=100)
                     
-                    position_opened_ts = int(pos.opened_at.timestamp() * 1000)
-                    
-                    for trade in reversed(trades):
-                        trade_time = int(trade.get('time', 0))
+                    if trades and len(trades) > 0:
+                        position_opened_ts = int(pos.opened_at.timestamp() * 1000)
                         
-                        if trade_time < position_opened_ts:
-                            continue
-                        
-                        if trade['positionSide'] == position_side:
-                            trade_order_id = str(trade.get('orderId'))
+                        for trade in trades:
+                            trade_time = int(trade.get('ts', 0))
                             
-                            if pos.tp_order_id is not None and trade_order_id == pos.tp_order_id:
-                                realized_pnl = float(trade.get('realizedPnl', 0))
-                                close_reason = "TP"
-                                found_close_trade = True
-                                break
-                            elif pos.sl_order_id is not None and trade_order_id == pos.sl_order_id:
-                                realized_pnl = float(trade.get('realizedPnl', 0))
-                                close_reason = "SL"
-                                found_close_trade = True
-                                break
-                    
-                    if not found_close_trade and (tp_filled or sl_filled):
-                        for trade in reversed(trades):
-                            trade_time = int(trade.get('time', 0))
-                            if trade_time >= position_opened_ts and trade['positionSide'] == position_side:
-                                if float(trade.get('realizedPnl', 0)) != 0:
-                                    realized_pnl += float(trade['realizedPnl'])
-                    
-                    if not found_close_trade and not tp_filled and not sl_filled:
-                        for trade in reversed(trades):
-                            trade_time = int(trade.get('time', 0))
-                            if trade_time >= position_opened_ts and trade['positionSide'] == position_side:
-                                if float(trade.get('realizedPnl', 0)) != 0:
-                                    realized_pnl += float(trade['realizedPnl'])
-                                    found_close_trade = True
+                            if trade_time < position_opened_ts:
+                                continue
+                            
+                            trade_side = trade.get('side', '')
+                            trade_pos_side = trade.get('posSide', '')
+                            
+                            if trade_pos_side == position_side:
+                                pnl = float(trade.get('fillPnl', 0))
+                                realized_pnl += pnl
+                        
+                        if pos.tp_usdt is not None and realized_pnl >= float(pos.tp_usdt):
+                            close_reason = "TP"
+                        elif pos.sl_usdt is not None and realized_pnl <= -float(pos.sl_usdt):
+                            close_reason = "SL"
                     
                     db.query(Position).filter(Position.id == pos.id).update({
                         'pnl': realized_pnl,
@@ -204,6 +141,26 @@ class Try1Strategy:
                     })
                     
                     db.commit()
+                    print(f"Position closed: {pos.symbol} {pos.side} - PnL: ${realized_pnl:.2f} ({close_reason})")
+                
+                elif okx_pos:
+                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                    current_entry = float(okx_pos.get('entryPrice', 0))
+                    
+                    if current_entry > 0 and pos.entry_price is not None and abs(current_entry - float(pos.entry_price)) > 0.01:
+                        db.query(Position).filter(Position.id == pos.id).update({
+                            'entry_price': current_entry
+                        })
+                        db.commit()
+                    
+                    if pos.tp_usdt is not None and unrealized_pnl >= float(pos.tp_usdt):
+                        print(f"TP target reached for {pos.symbol} {pos.side}: ${unrealized_pnl:.2f}")
+                    
+                    if pos.sl_usdt is not None and unrealized_pnl <= -float(pos.sl_usdt):
+                        print(f"SL target reached for {pos.symbol} {pos.side}: ${unrealized_pnl:.2f}")
             
+        except Exception as e:
+            print(f"Error checking positions: {e}")
+            db.rollback()
         finally:
             db.close()
