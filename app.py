@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database import init_db, SessionLocal, Position
+from database import init_db, SessionLocal, Position, APICredentials
 from binance_client import BinanceTestnetClient
 from trading_strategy import Try1Strategy
 from background_scheduler import get_monitor
@@ -20,7 +20,18 @@ monitor = get_monitor()
 def check_api_keys():
     api_key = os.getenv("BINANCE_TESTNET_API_KEY")
     api_secret = os.getenv("BINANCE_TESTNET_API_SECRET")
-    return bool(api_key and api_secret)
+    
+    if api_key and api_secret:
+        return True
+    
+    db = SessionLocal()
+    try:
+        creds = db.query(APICredentials).first()
+        return creds is not None
+    finally:
+        db.close()
+    
+    return False
 
 def main():
     st.title("📈 Binance Futures Trading Bot (Testnet)")
@@ -39,17 +50,31 @@ def main():
         4. Sayfayı yenileyin
         """)
         
-        with st.expander("🔧 Manuel API Key Girişi (Geçici)"):
-            st.warning("Bu yöntem güvenli değildir. Sadece test için kullanın.")
-            api_key_input = st.text_input("API Key", type="password")
-            api_secret_input = st.text_input("API Secret", type="password")
+        with st.expander("🔧 API Key Kaydetme (Veritabanı)"):
+            st.info("API anahtarlarınız şifrelenmiş olarak veritabanına kaydedilecek.")
+            api_key_input = st.text_input("API Key", type="password", key="api_key_input")
+            api_secret_input = st.text_input("API Secret", type="password", key="api_secret_input")
             
-            if st.button("Kaydet (Session için)"):
+            if st.button("Veritabanına Kaydet"):
                 if api_key_input and api_secret_input:
-                    st.session_state['temp_api_key'] = api_key_input
-                    st.session_state['temp_api_secret'] = api_secret_input
-                    st.success("API anahtarları session'a kaydedildi. Sayfa yenileniyor...")
-                    st.rerun()
+                    db = SessionLocal()
+                    try:
+                        creds = db.query(APICredentials).first()
+                        if creds:
+                            creds.set_credentials(api_key_input, api_secret_input)
+                        else:
+                            creds = APICredentials()
+                            creds.set_credentials(api_key_input, api_secret_input)
+                            db.add(creds)
+                        db.commit()
+                        st.success("✅ API anahtarları veritabanına kaydedildi! Sayfa yenileniyor...")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Hata: {e}")
+                    finally:
+                        db.close()
+                else:
+                    st.warning("Lütfen her iki alanı da doldurun.")
         return
     
     tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📈 Geçmiş İşlemler", "⚙️ Ayarlar"])
@@ -284,14 +309,53 @@ def show_settings_page():
     if client.is_configured():
         st.success("✅ Binance API bağlantısı aktif")
         
-        if st.button("🔄 Hedge Mode'u Kontrol Et ve Aktifleştir"):
-            success = client.set_hedge_mode()
-            if success:
-                st.success("✅ Hedge mode aktif")
-            else:
-                st.error("❌ Hedge mode aktif edilemedi")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Hedge Mode'u Kontrol Et ve Aktifleştir"):
+                success = client.set_hedge_mode()
+                if success:
+                    st.success("✅ Hedge mode aktif")
+                else:
+                    st.error("❌ Hedge mode aktif edilemedi")
+        
+        with col2:
+            db = SessionLocal()
+            try:
+                creds = db.query(APICredentials).first()
+                if creds:
+                    if st.button("🗑️ API Anahtarlarını Sil"):
+                        db.delete(creds)
+                        db.commit()
+                        st.success("API anahtarları silindi. Sayfa yenileniyor...")
+                        st.rerun()
+            finally:
+                db.close()
     else:
         st.error("❌ API bağlantısı kurulamadı")
+        
+        with st.expander("🔧 API Anahtarlarını Güncelle"):
+            api_key_input = st.text_input("API Key", type="password", key="settings_api_key")
+            api_secret_input = st.text_input("API Secret", type="password", key="settings_api_secret")
+            
+            if st.button("Kaydet ve Bağlan"):
+                if api_key_input and api_secret_input:
+                    db = SessionLocal()
+                    try:
+                        creds = db.query(APICredentials).first()
+                        if creds:
+                            creds.set_credentials(api_key_input, api_secret_input)
+                        else:
+                            creds = APICredentials()
+                            creds.set_credentials(api_key_input, api_secret_input)
+                            db.add(creds)
+                        db.commit()
+                        st.success("✅ API anahtarları kaydedildi! Sayfa yenileniyor...")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Hata: {e}")
+                    finally:
+                        db.close()
     
     st.divider()
     

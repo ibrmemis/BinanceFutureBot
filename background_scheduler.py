@@ -8,11 +8,21 @@ from trading_strategy import Try1Strategy
 class PositionMonitor:
     def __init__(self):
         self.scheduler = BackgroundScheduler()
-        self.strategy = Try1Strategy()
+        self.strategy = None
         self.closed_positions_for_reopen = {}
+    
+    def _ensure_strategy(self):
+        if self.strategy is None:
+            self.strategy = Try1Strategy()
+        elif not self.strategy.client.is_configured():
+            self.strategy = Try1Strategy()
         
     def check_positions(self):
         try:
+            self._ensure_strategy()
+            if not self.strategy or not self.strategy.client.is_configured():
+                return
+            
             self.strategy.check_and_update_positions()
             
             db = SessionLocal()
@@ -34,6 +44,10 @@ class PositionMonitor:
     
     def reopen_closed_positions(self):
         try:
+            self._ensure_strategy()
+            if not self.strategy or not self.strategy.client.is_configured():
+                return
+            
             db = SessionLocal()
             try:
                 positions_to_reopen = []

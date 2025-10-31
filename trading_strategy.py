@@ -74,7 +74,7 @@ class Try1Strategy:
         tp_side = "SELL" if side == "LONG" else "BUY"
         sl_side = "SELL" if side == "LONG" else "BUY"
         
-        self.client.set_take_profit(
+        tp_order = self.client.set_take_profit(
             symbol=symbol,
             side=tp_side,
             position_side=position_side,
@@ -82,13 +82,16 @@ class Try1Strategy:
             stop_price=tp_price
         )
         
-        self.client.set_stop_loss(
+        sl_order = self.client.set_stop_loss(
             symbol=symbol,
             side=sl_side,
             position_side=position_side,
             quantity=quantity,
             stop_price=sl_price
         )
+        
+        tp_order_id = str(tp_order['orderId']) if tp_order else None
+        sl_order_id = str(sl_order['orderId']) if sl_order else None
         
         db = SessionLocal()
         try:
@@ -101,7 +104,10 @@ class Try1Strategy:
                 sl_usdt=sl_usdt,
                 entry_price=entry_price,
                 quantity=quantity,
-                order_id=order['orderId'],
+                order_id=str(order['orderId']),
+                position_side=position_side,
+                tp_order_id=tp_order_id,
+                sl_order_id=sl_order_id,
                 is_open=True,
                 reopen_count=reopen_count,
                 parent_position_id=parent_position_id
@@ -121,22 +127,73 @@ class Try1Strategy:
             open_positions = db.query(Position).filter(Position.is_open == True).all()
             
             for pos in open_positions:
-                position_side = "LONG" if pos.side == "LONG" else "SHORT"
+                position_side = pos.position_side or ("LONG" if pos.side == "LONG" else "SHORT")
                 binance_pos = self.client.get_position(pos.symbol, position_side)
                 
                 if binance_pos and float(binance_pos['positionAmt']) == 0:
                     pos.is_open = False
                     pos.closed_at = datetime.utcnow()
                     
-                    unrealized_pnl = float(binance_pos.get('unRealizedProfit', 0))
-                    pos.pnl = unrealized_pnl
+                    realized_pnl = 0.0
+                    close_reason = "MANUAL"
+                    found_close_trade = False
                     
-                    if unrealized_pnl > 0:
-                        pos.close_reason = "TP"
-                    elif unrealized_pnl < 0:
-                        pos.close_reason = "SL"
-                    else:
-                        pos.close_reason = "MANUAL"
+                    tp_filled = False
+                    sl_filled = False
+                    
+                    if pos.tp_order_id:
+                        tp_order = self.client.get_order(pos.symbol, pos.tp_order_id)
+                        if tp_order and tp_order.get('status') == 'FILLED':
+                            tp_filled = True
+                            close_reason = "TP"
+                    
+                    if pos.sl_order_id:
+                        sl_order = self.client.get_order(pos.symbol, pos.sl_order_id)
+                        if sl_order and sl_order.get('status') == 'FILLED':
+                            sl_filled = True
+                            close_reason = "SL"
+                    
+                    trades = self.client.get_account_trades(pos.symbol, limit=100)
+                    
+                    position_opened_ts = int(pos.opened_at.timestamp() * 1000)
+                    
+                    for trade in reversed(trades):
+                        trade_time = int(trade.get('time', 0))
+                        
+                        if trade_time < position_opened_ts:
+                            continue
+                        
+                        if trade['positionSide'] == position_side:
+                            trade_order_id = str(trade.get('orderId'))
+                            
+                            if pos.tp_order_id and trade_order_id == pos.tp_order_id:
+                                realized_pnl = float(trade.get('realizedPnl', 0))
+                                close_reason = "TP"
+                                found_close_trade = True
+                                break
+                            elif pos.sl_order_id and trade_order_id == pos.sl_order_id:
+                                realized_pnl = float(trade.get('realizedPnl', 0))
+                                close_reason = "SL"
+                                found_close_trade = True
+                                break
+                    
+                    if not found_close_trade and (tp_filled or sl_filled):
+                        for trade in reversed(trades):
+                            trade_time = int(trade.get('time', 0))
+                            if trade_time >= position_opened_ts and trade['positionSide'] == position_side:
+                                if float(trade.get('realizedPnl', 0)) != 0:
+                                    realized_pnl += float(trade['realizedPnl'])
+                    
+                    if not found_close_trade and not tp_filled and not sl_filled:
+                        for trade in reversed(trades):
+                            trade_time = int(trade.get('time', 0))
+                            if trade_time >= position_opened_ts and trade['positionSide'] == position_side:
+                                if float(trade.get('realizedPnl', 0)) != 0:
+                                    realized_pnl += float(trade['realizedPnl'])
+                                    found_close_trade = True
+                    
+                    pos.pnl = realized_pnl
+                    pos.close_reason = close_reason
                     
                     db.commit()
             

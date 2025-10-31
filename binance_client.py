@@ -5,20 +5,43 @@ from typing import Dict, Optional
 
 class BinanceTestnetClient:
     def __init__(self):
-        self.api_key = os.getenv("BINANCE_TESTNET_API_KEY")
-        self.api_secret = os.getenv("BINANCE_TESTNET_API_SECRET")
+        self.api_key = None
+        self.api_secret = None
         self.client = None
         
+        self._load_credentials()
+        
         if self.api_key and self.api_secret:
-            self.client = Client(
-                self.api_key, 
-                self.api_secret,
-                testnet=True
-            )
-            self.client.API_URL = 'https://testnet.binancefuture.com'
+            try:
+                self.client = Client(
+                    self.api_key, 
+                    self.api_secret,
+                    testnet=True
+                )
+                self.client.API_URL = 'https://testnet.binancefuture.com'
+            except Exception as e:
+                print(f"Warning: Failed to initialize Binance client: {e}")
+                self.client = None
+    
+    def _load_credentials(self):
+        self.api_key = os.getenv("BINANCE_TESTNET_API_KEY")
+        self.api_secret = os.getenv("BINANCE_TESTNET_API_SECRET")
+        
+        if not self.api_key or not self.api_secret:
+            try:
+                from database import SessionLocal, APICredentials
+                db = SessionLocal()
+                try:
+                    creds = db.query(APICredentials).first()
+                    if creds:
+                        self.api_key, self.api_secret = creds.get_credentials()
+                finally:
+                    db.close()
+            except Exception as e:
+                pass
     
     def is_configured(self) -> bool:
-        return self.client is not None
+        return self.client is not None and self.api_key and self.api_secret
     
     def set_hedge_mode(self) -> bool:
         if not self.client:
@@ -204,3 +227,23 @@ class BinanceTestnetClient:
         except Exception as e:
             print(f"Error canceling orders: {e}")
             return False
+    
+    def get_account_trades(self, symbol: str, limit: int = 50) -> list:
+        if not self.client:
+            return []
+        try:
+            trades = self.client.futures_account_trades(symbol=symbol, limit=limit)
+            return trades
+        except Exception as e:
+            print(f"Error getting trades: {e}")
+            return []
+    
+    def get_order(self, symbol: str, order_id: str) -> Optional[Dict]:
+        if not self.client:
+            return None
+        try:
+            order = self.client.futures_get_order(symbol=symbol, orderId=order_id)
+            return order
+        except Exception as e:
+            print(f"Error getting order: {e}")
+            return None
