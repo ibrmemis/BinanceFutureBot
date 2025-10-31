@@ -18,7 +18,7 @@ class BinanceTestnetClient:
                     self.api_secret,
                     testnet=True
                 )
-                self.client.API_URL = 'https://testnet.binancefuture.com'
+                self.client.API_URL = 'https://demo.binance.com'
             except Exception as e:
                 print(f"Warning: Failed to initialize Binance client: {e}")
                 self.client = None
@@ -41,7 +41,7 @@ class BinanceTestnetClient:
                 pass
     
     def is_configured(self) -> bool:
-        return self.client is not None and self.api_key and self.api_secret
+        return bool(self.client is not None and self.api_key and self.api_secret)
     
     def set_hedge_mode(self) -> bool:
         if not self.client:
