@@ -166,7 +166,7 @@ def show_new_trade_page():
                     st.error(f"❌ {message}")
     
     with col2:
-        client = BinanceTestnetClient()
+        client = OKXTestnetClient()
         if st.button("🔄 Mevcut Fiyat", use_container_width=True):
             price = client.get_symbol_price(symbol)
             if price:
@@ -183,7 +183,7 @@ def show_new_trade_page():
         - ✅ Cross Margin modunda işlem
         - ✅ Market emri ile anında açılış
         - ✅ TP ve SL USDT cinsinden PnL değeri olarak belirlenir
-        - ✅ Hedge mode aktif (LONG ve SHORT aynı anda açılabilir)
+        - ✅ Long/Short mode aktif (LONG ve SHORT ayrı pozisyonlar olarak açılabilir)
         - ✅ Pozisyon kapandığında **5 dakika sonra** otomatik olarak aynı parametrelerle yeniden açılır
         - ✅ Her 1 dakikada pozisyonlar kontrol edilir
         - ✅ Yeni işlem açılmadan önce eski işlemin kapanması beklenir
