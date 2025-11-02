@@ -930,15 +930,63 @@ def show_settings_page():
     
     st.divider()
     
-    st.subheader("🤖 Arka Plan İzleme")
+    st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
     
-    st.info("""
-    **Otomatik İzleme Sistemi Aktif:**
+    from background_scheduler import get_monitor, stop_monitor, start_monitor
     
-    - ✅ Pozisyonlar her **1 dakikada** kontrol ediliyor
-    - ✅ Kapanan pozisyonlar **5 dakika** sonra otomatik yeniden açılıyor
-    - ✅ Tüm işlemler veritabanına kaydediliyor
-    """)
+    monitor = get_monitor()
+    is_running = monitor.is_running() if monitor else False
+    
+    if is_running:
+        st.success("✅ **Background Scheduler ÇALIŞIYOR**")
+        
+        st.info("""
+        **Otomatik İzleme Sistemi Aktif:**
+        
+        - ✅ Pozisyonlar her **1 dakikada** kontrol ediliyor
+        - ✅ Orphaned emirler her **1 dakikada** temizleniyor
+        - ✅ Kapanan pozisyonlar **5 dakika** sonra otomatik yeniden açılıyor
+        - ✅ Tüm işlemler veritabanına kaydediliyor
+        """)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("⏸️ Botu Durdur", type="secondary", use_container_width=True):
+                if stop_monitor():
+                    st.success("✅ Background scheduler durduruldu!")
+                    st.rerun()
+                else:
+                    st.error("❌ Durdurulamadı")
+        
+        with col2:
+            st.caption("Scheduler çalışıyor")
+    
+    else:
+        st.error("⚠️ **Background Scheduler DURMUŞ**")
+        
+        st.warning("""
+        **Otomatik izleme sistemi kapalı:**
+        
+        - ❌ Pozisyonlar otomatik kontrol edilmiyor
+        - ❌ Orphaned emirler temizlenmiyor
+        - ❌ Auto-reopen çalışmıyor
+        
+        **Botu başlatmak için aşağıdaki butona tıklayın:**
+        """)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
+                if start_monitor():
+                    st.success("✅ Background scheduler başlatıldı!")
+                    st.rerun()
+                else:
+                    st.error("❌ Başlatılamadı")
+        
+        with col2:
+            st.caption("Scheduler durmuş")
     
     st.divider()
     
