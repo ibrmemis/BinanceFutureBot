@@ -113,7 +113,7 @@ def show_new_trade_page():
         amount_usdt = st.number_input(
             "Pozisyon Değeri (USDT)",
             min_value=1.0,
-            value=1000.0,
+            value=1111.0,
             step=10.0,
             help="Toplam pozisyon büyüklüğü (örn: 1000 USDT)"
         )
@@ -122,7 +122,7 @@ def show_new_trade_page():
             "Kaldıraç",
             min_value=1,
             max_value=125,
-            value=10,
+            value=20,
             step=1
         )
         
@@ -138,14 +138,14 @@ def show_new_trade_page():
         tp_usdt = st.number_input(
             "Take Profit (USDT - PnL)",
             min_value=0.1,
-            value=10.0,
+            value=5.0,
             step=1.0
         )
         
         sl_usdt = st.number_input(
             "Stop Loss (USDT - PnL)",
             min_value=0.1,
-            value=5.0,
+            value=115.0,
             step=1.0
         )
     
@@ -288,17 +288,21 @@ def show_new_trade_page():
                     
                     with col1:
                         st.write("**✏️ TP/SL Değerlerini Değiştir**")
+                        # Handle None values for TP/SL
+                        tp_value = float(selected_pos.tp_usdt) if selected_pos.tp_usdt is not None else 10.0
+                        sl_value = float(selected_pos.sl_usdt) if selected_pos.sl_usdt is not None else 5.0
+                        
                         new_tp = st.number_input(
                             "Yeni TP (USDT)",
                             min_value=0.1,
-                            value=float(selected_pos.tp_usdt),
+                            value=tp_value,
                             step=1.0,
                             key=f"manage_tp_{selected_position_id}"
                         )
                         new_sl = st.number_input(
                             "Yeni SL (USDT)",
                             min_value=0.1,
-                            value=float(selected_pos.sl_usdt),
+                            value=sl_value,
                             step=1.0,
                             key=f"manage_sl_{selected_position_id}"
                         )
