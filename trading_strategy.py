@@ -125,7 +125,7 @@ class Try1Strategy:
                     side=close_side,
                     posSide=position_side,
                     ordType="trigger",
-                    sz=str(int(quantity)),
+                    sz=str(quantity),
                     triggerPx=str(round(sl_price, 4)),
                     orderPx="-1"
                 )
@@ -149,7 +149,7 @@ class Try1Strategy:
                     side=close_side,
                     posSide=position_side,
                     ordType="trigger",
-                    sz=str(int(quantity)),
+                    sz=str(quantity),
                     triggerPx=str(round(tp_price, 4)),
                     orderPx="-1"
                 )
