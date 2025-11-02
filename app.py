@@ -758,17 +758,28 @@ def show_orders_page():
                 with col3:
                     with st.popover("✏️ Düzenle"):
                         st.caption("Trigger fiyatını değiştir")
+                        try:
+                            trigger_value = float(trigger_px) if trigger_px and trigger_px != '' else 1.0
+                        except (ValueError, TypeError):
+                            trigger_value = 1.0
+                        
                         new_trigger_px = st.number_input(
                             "Yeni Trigger Fiyat",
                             min_value=0.0001,
-                            value=float(trigger_px),
+                            value=trigger_value,
                             step=0.0001,
                             key=f"edit_trigger_{algo_id}"
                         )
+                        
+                        try:
+                            size_value = max(0.01, float(size)) if size and size != '' else 0.01
+                        except (ValueError, TypeError):
+                            size_value = 0.01
+                        
                         new_size = st.number_input(
                             "Yeni Miktar",
                             min_value=0.01,
-                            value=max(0.01, float(size)),
+                            value=size_value,
                             step=0.01,
                             format="%.2f",
                             key=f"edit_size_{algo_id}"
