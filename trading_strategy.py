@@ -138,15 +138,17 @@ class Try1Strategy:
             if is_valid_tp:
                 inst_id = self.client.convert_symbol_to_okx(symbol)
                 close_side = "sell" if side == "LONG" else "buy"
+                # Use conditional order for TP (correct behavior)
                 tp_result = self.client.trade_api.place_algo_order(
                     instId=inst_id,
                     tdMode="cross",
                     side=close_side,
                     posSide=position_side,
-                    ordType="trigger",
+                    ordType="conditional",
                     sz=str(quantity),
-                    triggerPx=str(round(tp_price, 4)),
-                    orderPx="-1"
+                    tpTriggerPx=str(round(tp_price, 4)),
+                    tpOrdPx="-1",
+                    reduceOnly=True
                 )
                 if tp_result.get('code') == '0' and tp_result.get('data'):
                     tp_order_id = tp_result['data'][0]['algoId']
