@@ -193,36 +193,42 @@ class PositionMonitor:
             print(f"Error reopening positions: {e}")
     
     def start(self):
-        self.scheduler.add_job(
-            self.check_positions,
-            'interval',
-            minutes=1,
-            id='position_checker',
-            replace_existing=True
-        )
-        
-        self.scheduler.add_job(
-            self.cancel_orphaned_orders,
-            'interval',
-            minutes=1,
-            id='order_canceller',
-            replace_existing=True
-        )
-        
-        self.scheduler.add_job(
-            self.reopen_closed_positions,
-            'interval',
-            seconds=30,
-            id='position_reopener',
-            replace_existing=True
-        )
-        
-        if not self.scheduler.running:
-            self.scheduler.start()
+        try:
+            if not self.scheduler.running:
+                self.scheduler.add_job(
+                    self.check_positions,
+                    'interval',
+                    minutes=1,
+                    id='position_checker',
+                    replace_existing=True
+                )
+                
+                self.scheduler.add_job(
+                    self.cancel_orphaned_orders,
+                    'interval',
+                    minutes=1,
+                    id='order_canceller',
+                    replace_existing=True
+                )
+                
+                self.scheduler.add_job(
+                    self.reopen_closed_positions,
+                    'interval',
+                    seconds=30,
+                    id='position_reopener',
+                    replace_existing=True
+                )
+                
+                self.scheduler.start()
+        except Exception as e:
+            print(f"Error starting scheduler: {e}")
     
     def stop(self):
-        if self.scheduler.running:
-            self.scheduler.shutdown()
+        try:
+            if self.scheduler.running:
+                self.scheduler.shutdown(wait=False)
+        except Exception as e:
+            print(f"Error stopping scheduler: {e}")
     
     def is_running(self):
         return self.scheduler.running
@@ -231,25 +237,52 @@ monitor = None
 
 def get_monitor():
     global monitor
-    if monitor is None:
+    try:
+        if monitor is None:
+            monitor = PositionMonitor()
+            monitor.start()
+        elif not monitor.is_running():
+            try:
+                monitor.stop()
+            except:
+                pass
+            monitor = PositionMonitor()
+            monitor.start()
+    except Exception as e:
+        print(f"Error getting monitor: {e}")
         monitor = PositionMonitor()
-        monitor.start()
+        try:
+            monitor.start()
+        except:
+            pass
     return monitor
 
 def stop_monitor():
     global monitor
-    if monitor is not None and monitor.is_running():
-        monitor.stop()
-        return True
+    try:
+        if monitor is not None and monitor.is_running():
+            monitor.stop()
+            return True
+    except Exception as e:
+        print(f"Error stopping monitor: {e}")
     return False
 
 def start_monitor():
     global monitor
-    if monitor is None:
-        monitor = PositionMonitor()
-        monitor.start()
-        return True
-    elif not monitor.is_running():
-        monitor.start()
-        return True
+    try:
+        if monitor is None:
+            monitor = PositionMonitor()
+            monitor.start()
+            return True
+        elif not monitor.is_running():
+            try:
+                monitor.stop()
+            except:
+                pass
+            monitor = PositionMonitor()
+            monitor.start()
+            return True
+    except Exception as e:
+        print(f"Error starting monitor: {e}")
+        return False
     return False
