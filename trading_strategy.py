@@ -178,9 +178,10 @@ class Try1Strategy:
             db.commit()
             db.refresh(position)
             
-            position_id = position.id
+            # Cast to int to satisfy type checker (after refresh, id is populated as int)
+            position_db_id = int(position.id) if position.id is not None else None
             
-            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_id
+            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_db_id
         except Exception as e:
             db.rollback()
             return False, f"Veritabanı hatası: {e}", None
