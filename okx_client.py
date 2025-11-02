@@ -236,14 +236,12 @@ class OKXTestnetClient:
             tp_order_id = None
             sl_order_id = None
             
-            current_price = self.get_symbol_price(symbol)
-            if not current_price:
-                print("Cannot get current price for TP/SL validation")
-                return None, None
+            # Validasyon için entry_price kullan (mevcut fiyat değişmiş olabilir)
+            validation_price = entry_price
             
             if tp_price:
-                is_valid_tp = (side.upper() == "LONG" and tp_price > current_price) or \
-                              (side.upper() == "SHORT" and tp_price < current_price)
+                is_valid_tp = (side.upper() == "LONG" and tp_price > validation_price) or \
+                              (side.upper() == "SHORT" and tp_price < validation_price)
                 
                 if is_valid_tp:
                     tp_result = self.trade_api.place_algo_order(
@@ -258,15 +256,15 @@ class OKXTestnetClient:
                     )
                     if tp_result.get('code') == '0' and tp_result.get('data'):
                         tp_order_id = tp_result['data'][0]['algoId']
-                        print(f"TP order placed: {tp_order_id} @ ${tp_price:.4f} (current: ${current_price:.4f})")
+                        print(f"TP order placed: {tp_order_id} @ ${tp_price:.4f} (entry: ${entry_price:.4f})")
                     else:
                         print(f"TP order failed: {tp_result}")
                 else:
-                    print(f"Invalid TP price: ${tp_price:.4f} (current: ${current_price:.4f}, side: {side})")
+                    print(f"Invalid TP price: ${tp_price:.4f} (entry: ${entry_price:.4f}, side: {side})")
             
             if sl_price:
-                is_valid_sl = (side.upper() == "LONG" and sl_price < current_price) or \
-                              (side.upper() == "SHORT" and sl_price > current_price)
+                is_valid_sl = (side.upper() == "LONG" and sl_price < validation_price) or \
+                              (side.upper() == "SHORT" and sl_price > validation_price)
                 
                 if is_valid_sl:
                     sl_result = self.trade_api.place_algo_order(
@@ -281,11 +279,11 @@ class OKXTestnetClient:
                     )
                     if sl_result.get('code') == '0' and sl_result.get('data'):
                         sl_order_id = sl_result['data'][0]['algoId']
-                        print(f"SL order placed: {sl_order_id} @ ${sl_price:.4f} (current: ${current_price:.4f})")
+                        print(f"SL order placed: {sl_order_id} @ ${sl_price:.4f} (entry: ${entry_price:.4f})")
                     else:
                         print(f"SL order failed: {sl_result}")
                 else:
-                    print(f"Invalid SL price: ${sl_price:.4f} (current: ${current_price:.4f}, side: {side})")
+                    print(f"Invalid SL price: ${sl_price:.4f} (entry: ${entry_price:.4f}, side: {side})")
             
             return tp_order_id, sl_order_id
             
