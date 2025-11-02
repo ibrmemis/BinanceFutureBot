@@ -12,8 +12,8 @@ class Try1Strategy:
         leverage: int,
         current_price: float
     ) -> int:
-        total_value = amount_usdt * leverage
-        contracts = int(total_value / current_price)
+        position_value = amount_usdt
+        contracts = int(position_value / current_price)
         return max(1, contracts)
     
     def calculate_tp_sl_prices(

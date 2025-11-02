@@ -111,10 +111,11 @@ def show_new_trade_page():
         )
         
         amount_usdt = st.number_input(
-            "İşlem Miktarı (USDT)",
+            "Pozisyon Değeri (USDT)",
             min_value=1.0,
-            value=100.0,
-            step=10.0
+            value=1000.0,
+            step=10.0,
+            help="Toplam pozisyon büyüklüğü (örn: 1000 USDT)"
         )
         
         leverage = st.number_input(
@@ -124,6 +125,9 @@ def show_new_trade_page():
             value=10,
             step=1
         )
+        
+        margin_used = amount_usdt / leverage
+        st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
     
     with col2:
         side = st.selectbox(
@@ -185,6 +189,8 @@ def show_new_trade_page():
         
         - ✅ Cross Margin modunda işlem
         - ✅ Market emri ile anında açılış
+        - ✅ Pozisyon Değeri: Toplam pozisyon büyüklüğü (örn: 1000 USDT)
+        - ✅ Marjin: Pozisyon Değeri / Kaldıraç (örn: 1000 / 10 = 100 USDT marjin kullanılır)
         - ✅ TP ve SL USDT cinsinden PnL değeri olarak belirlenir
         - ✅ Long/Short mode aktif (LONG ve SHORT ayrı pozisyonlar olarak açılabilir)
         - ✅ Pozisyon kapandığında **5 dakika sonra** otomatik olarak aynı parametrelerle yeniden açılır
