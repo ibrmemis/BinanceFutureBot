@@ -16,6 +16,26 @@ class Try1Strategy:
         contracts = int(total_value / current_price)
         return max(1, contracts)
     
+    def calculate_tp_sl_prices(
+        self,
+        entry_price: float,
+        side: str,
+        tp_usdt: float,
+        sl_usdt: float,
+        quantity: int
+    ) -> tuple[float, float]:
+        pnl_per_contract_tp = tp_usdt / quantity
+        pnl_per_contract_sl = sl_usdt / quantity
+        
+        if side == "LONG":
+            tp_price = entry_price + pnl_per_contract_tp
+            sl_price = entry_price - pnl_per_contract_sl
+        else:
+            tp_price = entry_price - pnl_per_contract_tp
+            sl_price = entry_price + pnl_per_contract_sl
+        
+        return tp_price, sl_price
+    
     def open_position(
         self,
         symbol: str,
@@ -55,6 +75,24 @@ class Try1Strategy:
         
         entry_price = current_price
         
+        tp_price, sl_price = self.calculate_tp_sl_prices(
+            entry_price=entry_price,
+            side=side,
+            tp_usdt=tp_usdt,
+            sl_usdt=sl_usdt,
+            quantity=quantity
+        )
+        
+        tp_order_id, sl_order_id = self.client.place_tp_sl_orders(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            entry_price=entry_price,
+            tp_price=tp_price,
+            sl_price=sl_price,
+            position_side=position_side
+        )
+        
         db = SessionLocal()
         try:
             position = Position(
@@ -68,6 +106,8 @@ class Try1Strategy:
                 quantity=quantity,
                 order_id=str(order.get('orderId')),
                 position_side=position_side,
+                tp_order_id=tp_order_id,
+                sl_order_id=sl_order_id,
                 is_open=True,
                 reopen_count=reopen_count,
                 parent_position_id=parent_position_id
@@ -78,7 +118,15 @@ class Try1Strategy:
             
             position_id = position.id
             
-            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}", position_id
+            tp_sl_msg = ""
+            if tp_order_id and sl_order_id:
+                tp_sl_msg = f" (TP: ${tp_price:.4f}, SL: ${sl_price:.4f})"
+            elif tp_order_id:
+                tp_sl_msg = f" (TP: ${tp_price:.4f})"
+            elif sl_order_id:
+                tp_sl_msg = f" (SL: ${sl_price:.4f})"
+            
+            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_id
         except Exception as e:
             db.rollback()
             return False, f"Veritabanı hatası: {e}", None

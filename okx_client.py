@@ -197,6 +197,71 @@ class OKXTestnetClient:
             print(f"Error placing limit order: {e}")
             return None
     
+    def place_tp_sl_orders(self, symbol: str, side: str, quantity: float, entry_price: float, tp_price: float, sl_price: float, position_side: str = "long") -> tuple[Optional[str], Optional[str]]:
+        if not self.trade_api:
+            return None, None
+        
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            close_side = "sell" if side.upper() == "LONG" else "buy"
+            
+            tp_order_id = None
+            sl_order_id = None
+            
+            if tp_price:
+                tp_result = self.trade_api.place_algo_order(
+                    instId=inst_id,
+                    tdMode="cross",
+                    side=close_side,
+                    posSide=position_side,
+                    ordType="conditional",
+                    sz=str(int(quantity)),
+                    tpTriggerPx=str(tp_price),
+                    tpOrdPx="-1"
+                )
+                if tp_result.get('code') == '0' and tp_result.get('data'):
+                    tp_order_id = tp_result['data'][0]['algoId']
+                    print(f"TP order placed: {tp_order_id} @ ${tp_price}")
+                else:
+                    print(f"TP order failed: {tp_result}")
+            
+            if sl_price:
+                sl_result = self.trade_api.place_algo_order(
+                    instId=inst_id,
+                    tdMode="cross",
+                    side=close_side,
+                    posSide=position_side,
+                    ordType="conditional",
+                    sz=str(int(quantity)),
+                    slTriggerPx=str(sl_price),
+                    slOrdPx="-1"
+                )
+                if sl_result.get('code') == '0' and sl_result.get('data'):
+                    sl_order_id = sl_result['data'][0]['algoId']
+                    print(f"SL order placed: {sl_order_id} @ ${sl_price}")
+                else:
+                    print(f"SL order failed: {sl_result}")
+            
+            return tp_order_id, sl_order_id
+            
+        except Exception as e:
+            print(f"Error placing TP/SL orders: {e}")
+            return None, None
+    
+    def cancel_algo_order(self, symbol: str, algo_id: str) -> bool:
+        if not self.trade_api:
+            return False
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.trade_api.cancel_algo_order([{
+                'instId': inst_id,
+                'algoId': algo_id
+            }])
+            return result.get('code') == '0'
+        except Exception as e:
+            print(f"Error canceling algo order: {e}")
+            return False
+    
     def get_position(self, symbol: str, position_side: str = "long") -> Optional[Dict]:
         if not self.account_api:
             return None

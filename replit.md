@@ -102,7 +102,11 @@ Preferred communication style: Simple, everyday language.
 - **Margin Type**: Cross margin (tdMode="cross")
 - **Order Type**: Market orders for entry
 - **Quantity Calculation**: Based on USDT amount and leverage: `contracts = int((amount_usdt * leverage) / current_price)`
-- **TP/SL Implementation**: Manual monitoring via background scheduler (simpler than OKX algo orders)
+- **TP/SL Implementation**: 
+  - Automatic TP/SL algo orders placed immediately after market order execution
+  - TP/SL calculated from USDT PnL targets: `price = entry ± (pnl_usdt / quantity)`
+  - Uses OKX conditional algo orders (ordType="conditional")
+  - TP/SL order IDs stored in database for tracking
 - **Position Tracking**: Real-time unrealized PnL monitoring and position status updates
 - **Auto-Reopen**: Positions automatically reopen 5 minutes after closure with identical parameters
 
@@ -120,8 +124,10 @@ Preferred communication style: Simple, everyday language.
 3. **Instrument Format**: Changed from "BTCUSDT" to "BTC-USDT-SWAP"
 4. **Position Mode**: Changed from hedge mode to long/short mode
 5. **Margin Configuration**: Integrated into order placement (tdMode parameter) instead of separate API call
-6. **TP/SL Mechanism**: Switched to manual monitoring approach for simplicity
-7. **Database Schema**: Added passphrase_encrypted column to api_credentials table
+6. **TP/SL Mechanism**: Implemented automatic TP/SL algo orders using OKX conditional orders API
+7. **Database Schema**: 
+   - Added passphrase_encrypted column to api_credentials table
+   - TP/SL order IDs (tp_order_id, sl_order_id) stored for tracking
 8. **Environment Variables**: Renamed from BINANCE_TESTNET_* to OKX_DEMO_*
 
 ### Technical Differences
