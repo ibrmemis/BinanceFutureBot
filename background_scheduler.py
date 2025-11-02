@@ -103,25 +103,87 @@ class PositionMonitor:
                         del self.closed_positions_for_reopen[pos_id]
                 
                 for pos in positions_to_reopen:
-                    success, message, new_pos_id = self.strategy.open_position(
+                    # Yeni pozisyon bilgilerini al
+                    position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                    
+                    # Market order ile pozisyon aç
+                    order_result = self.strategy.client.place_market_order(
                         symbol=pos.symbol,
                         side=pos.side,
                         amount_usdt=pos.amount_usdt,
                         leverage=pos.leverage,
-                        tp_usdt=pos.tp_usdt,
-                        sl_usdt=pos.sl_usdt,
-                        parent_position_id=pos.id,
-                        reopen_count=pos.reopen_count + 1,
-                        save_to_db=False
+                        position_side=position_side
                     )
                     
-                    if success:
-                        pos.reopen_count += 1
-                        pos.closed_at = datetime.utcnow() - timedelta(minutes=15)
-                        db.commit()
-                        print(f"Pozisyon yeniden açıldı: {message}")
-                    else:
-                        print(f"Pozisyon yeniden açılamadı: {message}")
+                    if not order_result:
+                        print(f"Pozisyon yeniden açılamadı: {pos.symbol} {pos.side}")
+                        continue
+                    
+                    import time
+                    time.sleep(2)
+                    
+                    # Yeni pozisyon bilgilerini OKX'ten al
+                    okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
+                    
+                    if not okx_pos:
+                        print(f"Pozisyon bilgisi alınamadı: {pos.symbol} {pos.side}")
+                        continue
+                    
+                    new_entry_price = float(okx_pos.get('entryPrice', 0))
+                    new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
+                    new_pos_id = okx_pos.get('posId')
+                    
+                    if new_quantity == 0 or not new_pos_id:
+                        print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
+                        continue
+                    
+                    # TP/SL emirlerini yerleştir
+                    tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
+                        entry_price=new_entry_price,
+                        side=pos.side,
+                        tp_usdt=pos.tp_usdt,
+                        sl_usdt=pos.sl_usdt,
+                        quantity=new_quantity,
+                        symbol=pos.symbol
+                    )
+                    
+                    sl_order_id = None
+                    tp_order_id = None
+                    
+                    if sl_price and self.strategy.client.trade_api:
+                        sl_order_id = self.strategy.client.place_sl_order(
+                            symbol=pos.symbol,
+                            side=pos.side,
+                            quantity=new_quantity,
+                            sl_price=sl_price,
+                            position_side=position_side
+                        )
+                    
+                    if tp_price and self.strategy.client.trade_api:
+                        time.sleep(5)
+                        tp_order_id = self.strategy.client.place_tp_order(
+                            symbol=pos.symbol,
+                            side=pos.side,
+                            quantity=new_quantity,
+                            tp_price=tp_price,
+                            position_side=position_side
+                        )
+                    
+                    # Eski pozisyon kaydını yeni bilgilerle güncelle
+                    pos.is_open = True
+                    pos.entry_price = new_entry_price
+                    pos.quantity = new_quantity
+                    pos.position_id = new_pos_id
+                    pos.opened_at = datetime.utcnow()
+                    pos.closed_at = None
+                    pos.pnl = None
+                    pos.close_reason = None
+                    pos.tp_order_id = tp_order_id
+                    pos.sl_order_id = sl_order_id
+                    pos.reopen_count += 1
+                    
+                    db.commit()
+                    print(f"Pozisyon yeniden açıldı ve database güncellendi: {pos.symbol} {pos.side} (Entry: ${new_entry_price:.2f}, Qty: {new_quantity})")
                         
             finally:
                 db.close()
