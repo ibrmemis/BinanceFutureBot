@@ -215,6 +215,9 @@ def show_new_trade_page():
                 position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
                 okx_pos = client.get_position(str(pos.symbol), position_side)
                 
+                if pos.position_id and okx_pos and okx_pos.get('posId') != pos.position_id:
+                    continue
+                
                 if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
                     entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))
                     unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
@@ -380,6 +383,11 @@ def show_active_positions_page():
                 position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
                 
                 okx_pos = client.get_position(str(pos.symbol), position_side)
+                
+                if pos.position_id and okx_pos:
+                    if okx_pos.get('posId') != pos.position_id:
+                        st.warning(f"⚠️ {pos.symbol} - Position ID eşleşmiyor (DB: {pos.position_id}, OKX: {okx_pos.get('posId')})")
+                        continue
                 
                 if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
                     real_entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))

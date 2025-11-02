@@ -40,12 +40,16 @@ Preferred communication style: Simple, everyday language.
 - **Key Tables**:
   - `api_credentials`: Stores encrypted OKX API keys, secrets, and passphrases
   - `positions`: Tracks all trading positions (open/closed status, entry/exit prices, PnL, position_side, reopen_count, etc.)
+    - **Position ID Tracking**: Each position stores OKX's unique `posId` field in the `position_id` column
+    - **Position Identification**: Positions are tracked by their unique OKX `posId`, not by order/trade IDs
+    - **Open/Closed Status**: Position status is determined by checking if the `posId` exists in OKX and has non-zero position amount
 
 - **Security**: API credentials are encrypted using Fernet (symmetric encryption) with a key derived from SESSION_SECRET environment variable
 - **Rationale**: 
   - PostgreSQL provides ACID compliance and reliability for financial data
   - Encryption ensures API keys are never stored in plaintext
   - SQLAlchemy abstracts database operations and enables easy migration to other databases if needed
+  - Using OKX's `posId` ensures accurate position tracking even when positions are reopened or modified
 
 ### Authentication & Authorization
 - **API Key Management**: Dual-source credential loading (environment variables take precedence over database)
@@ -110,9 +114,14 @@ Preferred communication style: Simple, everyday language.
 - **TP/SL Implementation**: 
   - Automatic TP/SL algo orders placed immediately after market order execution
   - TP/SL calculated from USDT PnL targets: `price = entry ± (pnl_usdt / quantity)`
-  - Uses OKX conditional algo orders (ordType="conditional")
+  - Uses OKX trigger algo orders (ordType="trigger")
   - TP/SL order IDs stored in database for tracking
-- **Position Tracking**: Real-time unrealized PnL monitoring and position status updates
+- **Position Tracking**: 
+  - Each position is identified by OKX's unique `posId` (retrieved after market order execution)
+  - `posId` is stored in database `position_id` column for precise tracking
+  - Position open/closed status determined by matching `posId` and checking position amount
+  - Real-time unrealized PnL monitoring and position status updates
+  - 2-second delay after order placement to ensure `posId` is available from OKX API
 - **Auto-Reopen**: Positions automatically reopen 5 minutes after closure with identical parameters
 
 ## Migration from Binance to OKX

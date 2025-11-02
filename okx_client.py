@@ -333,9 +333,10 @@ class OKXTestnetClient:
                             'positionAmt': pos.get('pos', '0'),
                             'entryPrice': pos.get('avgPx', '0'),
                             'unrealizedProfit': pos.get('upl', '0'),
-                            'leverage': pos.get('lever', '1')
+                            'leverage': pos.get('lever', '1'),
+                            'posId': pos.get('posId', None)
                         }
-            return {'positionAmt': '0'}
+            return {'positionAmt': '0', 'posId': None}
         except Exception as e:
             print(f"Error getting position: {e}")
             return None
@@ -346,10 +347,18 @@ class OKXTestnetClient:
         try:
             result = self.account_api.get_positions(instType="SWAP")
             if result.get('code') == '0' and result.get('data'):
-                active_positions = [
-                    pos for pos in result['data']
-                    if float(pos.get('pos', 0)) != 0
-                ]
+                active_positions = []
+                for pos in result['data']:
+                    if float(pos.get('pos', 0)) != 0:
+                        active_positions.append({
+                            'instId': pos.get('instId'),
+                            'posSide': pos.get('posSide'),
+                            'positionAmt': pos.get('pos', '0'),
+                            'entryPrice': pos.get('avgPx', '0'),
+                            'unrealizedProfit': pos.get('upl', '0'),
+                            'leverage': pos.get('lever', '1'),
+                            'posId': pos.get('posId', None)
+                        })
                 return active_positions
             return []
         except Exception as e:

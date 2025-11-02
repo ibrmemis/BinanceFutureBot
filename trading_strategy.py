@@ -75,6 +75,12 @@ class Try1Strategy:
         
         entry_price = current_price
         
+        import time
+        time.sleep(2)
+        
+        okx_position = self.client.get_position(symbol, position_side)
+        pos_id = okx_position.get('posId') if okx_position else None
+        
         tp_price, sl_price = self.calculate_tp_sl_prices(
             entry_price=entry_price,
             side=side,
@@ -105,6 +111,7 @@ class Try1Strategy:
                 entry_price=entry_price,
                 quantity=quantity,
                 order_id=str(order.get('orderId')),
+                position_id=pos_id,
                 position_side=position_side,
                 tp_order_id=tp_order_id,
                 sl_order_id=sl_order_id,
@@ -147,10 +154,22 @@ class Try1Strategy:
                     position_side = pos.position_side
                 else:
                     position_side = "long" if pos.side == "LONG" else "short"
-                    
+                
                 okx_pos = self.client.get_position(pos.symbol, position_side)
                 
-                if okx_pos and float(okx_pos['positionAmt']) == 0:
+                if not okx_pos:
+                    print(f"Could not fetch position from OKX: {pos.symbol} {position_side}")
+                    continue
+                
+                okx_pos_id = okx_pos.get('posId')
+                okx_pos_amt = float(okx_pos.get('positionAmt', 0))
+                
+                if pos.position_id:
+                    if okx_pos_id and okx_pos_id != pos.position_id and okx_pos_amt != 0:
+                        print(f"Position ID mismatch: DB={pos.position_id}, OKX={okx_pos_id}")
+                        continue
+                
+                if okx_pos_amt == 0:
                     db.query(Position).filter(Position.id == pos.id).update({
                         'is_open': False,
                         'closed_at': datetime.utcnow()
