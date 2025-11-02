@@ -190,7 +190,7 @@ def show_new_trade_page():
         """)
 
 def show_active_positions_page():
-    st.header("📊 Aktif Pozisyonlar")
+    st.header("📊 Aktif Pozisyonlar (Real-Time OKX)")
     
     col1, col2 = st.columns([3, 1])
     
@@ -198,56 +198,80 @@ def show_active_positions_page():
         if st.button("🔄 Yenile", use_container_width=True):
             st.rerun()
     
+    client = OKXTestnetClient()
+    
+    if not client.is_configured():
+        st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
+        return
+    
     db = SessionLocal()
     try:
-        active_positions = db.query(Position).filter(Position.is_open == True).order_by(Position.opened_at.desc()).all()
+        db_positions = db.query(Position).filter(Position.is_open == True).order_by(Position.opened_at.desc()).all()
         
-        if not active_positions:
+        if not db_positions:
             st.info("Şu anda aktif pozisyon bulunmuyor.")
         else:
-            st.success(f"Toplam {len(active_positions)} aktif pozisyon")
+            st.success(f"Toplam {len(db_positions)} aktif pozisyon")
             
-            for pos in active_positions:
-                with st.container():
-                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 2, 1])
+            for pos in db_positions:
+                position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                
+                okx_pos = client.get_position(str(pos.symbol), position_side)
+                
+                if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
+                    real_entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))
+                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                    current_price = client.get_symbol_price(str(pos.symbol))
                     
-                    with col1:
-                        st.metric("Coin", str(pos.symbol))
-                    
-                    with col2:
-                        side_value = str(pos.side)
-                        direction_color = "🟢" if side_value == "LONG" else "🔴"
-                        st.metric("Yön", f"{direction_color} {side_value}")
-                    
-                    with col3:
-                        leverage_val = cast(int, pos.leverage)
-                        st.metric("Kaldıraç", f"{leverage_val}x")
-                    
-                    with col4:
-                        amount_val = cast(float, pos.amount_usdt)
-                        st.metric("Miktar", f"${amount_val:.2f}")
-                    
-                    with col5:
-                        reopen_val = cast(int, pos.reopen_count) if pos.reopen_count is not None else 0
-                        if reopen_val > 0:
-                            st.metric("Yeniden Açılma", reopen_val)
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.caption(f"Giriş: ${pos.entry_price:.4f}")
-                    
-                    with col2:
-                        st.caption(f"Miktar: {pos.quantity}")
-                    
-                    with col3:
-                        st.caption(f"TP: ${pos.tp_usdt:.2f}")
-                    
-                    with col4:
-                        st.caption(f"SL: ${pos.sl_usdt:.2f}")
-                    
-                    st.caption(f"Açılış: {pos.opened_at.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-                    st.divider()
+                    with st.container():
+                        col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 2, 1])
+                        
+                        with col1:
+                            st.metric("Coin", str(pos.symbol))
+                        
+                        with col2:
+                            side_value = str(pos.side)
+                            direction_color = "🟢" if side_value == "LONG" else "🔴"
+                            st.metric("Yön", f"{direction_color} {side_value}")
+                        
+                        with col3:
+                            leverage_val = cast(int, pos.leverage)
+                            st.metric("Kaldıraç", f"{leverage_val}x")
+                        
+                        with col4:
+                            amount_val = cast(float, pos.amount_usdt)
+                            st.metric("Miktar", f"${amount_val:.2f}")
+                        
+                        with col5:
+                            reopen_val = cast(int, pos.reopen_count) if pos.reopen_count is not None else 0
+                            if reopen_val > 0:
+                                st.metric("Yeniden Açılma", reopen_val)
+                        
+                        col1, col2, col3, col4, col5 = st.columns(5)
+                        
+                        with col1:
+                            st.caption(f"Giriş: ${real_entry_price:.4f}")
+                        
+                        with col2:
+                            if current_price:
+                                st.caption(f"Şu an: ${current_price:.4f}")
+                            else:
+                                st.caption("Fiyat: N/A")
+                        
+                        with col3:
+                            pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
+                            st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
+                        
+                        with col4:
+                            st.caption(f"TP: ${pos.tp_usdt:.2f}")
+                        
+                        with col5:
+                            st.caption(f"SL: ${pos.sl_usdt:.2f}")
+                        
+                        st.caption(f"📅 Açılış: {pos.opened_at.strftime('%Y-%m-%d %H:%M:%S')} UTC | 📊 Miktar: {pos.quantity} kontrat")
+                        st.divider()
+                else:
+                    st.warning(f"⚠️ {pos.symbol} pozisyonu OKX'te bulunamadı veya kapanmış (DB güncellemesi bekleniyor)")
     finally:
         db.close()
 
