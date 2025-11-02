@@ -464,20 +464,72 @@ def show_new_trade_page():
                             if st.button("🔄 Yeniden Aç", key=f"btn_reopen_{selected_position_id}", type="primary", use_container_width=True):
                                 with st.spinner("Pozisyon yeniden açılıyor..."):
                                     strategy = Try1Strategy()
-                                    success, message, new_pos_id = strategy.open_position(
+                                    position_side = "long" if selected_pos.side == "LONG" else "short"
+                                    
+                                    # 1. OKX'te yeni pozisyon aç (database'e kaydetme)
+                                    success, message, _ = strategy.open_position(
                                         symbol=selected_pos.symbol,
                                         side=selected_pos.side,
                                         amount_usdt=selected_pos.amount_usdt,
                                         leverage=selected_pos.leverage,
                                         tp_usdt=selected_pos.tp_usdt,
                                         sl_usdt=selected_pos.sl_usdt,
-                                        save_to_db=True
+                                        save_to_db=False  # Database'e YENİ kayıt ekleme
                                     )
                                     
                                     if success:
-                                        st.success(f"✅ {message}")
-                                        st.info(f"Yeni Pozisyon ID: {new_pos_id}")
-                                        st.rerun()
+                                        import time
+                                        time.sleep(2)  # OKX'in position ID'yi oluşturması için bekle
+                                        
+                                        # 2. OKX'ten yeni pozisyon bilgilerini al
+                                        okx_pos = strategy.client.get_position(selected_pos.symbol, position_side)
+                                        
+                                        if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
+                                            new_entry_price = float(okx_pos.get('entryPrice', 0))
+                                            new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
+                                            new_pos_id = okx_pos.get('posId')
+                                            
+                                            # 3. MEVCUT database kaydını güncelle (yeni kayıt oluşturma!)
+                                            selected_pos.is_open = True
+                                            selected_pos.entry_price = new_entry_price
+                                            selected_pos.quantity = new_quantity
+                                            selected_pos.position_id = new_pos_id
+                                            selected_pos.opened_at = datetime.utcnow()
+                                            selected_pos.closed_at = None
+                                            selected_pos.pnl = None
+                                            selected_pos.close_reason = None
+                                            selected_pos.reopen_count = (selected_pos.reopen_count or 0) + 1
+                                            
+                                            # TP/SL emirleri güncelle
+                                            tp_price, sl_price = strategy.calculate_tp_sl_prices(
+                                                entry_price=new_entry_price,
+                                                side=selected_pos.side,
+                                                tp_usdt=selected_pos.tp_usdt,
+                                                sl_usdt=selected_pos.sl_usdt,
+                                                quantity=new_quantity,
+                                                symbol=selected_pos.symbol
+                                            )
+                                            
+                                            tp_order_id, sl_order_id = strategy.client.place_tp_sl_orders(
+                                                symbol=selected_pos.symbol,
+                                                side=selected_pos.side,
+                                                quantity=new_quantity,
+                                                entry_price=new_entry_price,
+                                                tp_price=tp_price,
+                                                sl_price=sl_price,
+                                                position_side=position_side
+                                            )
+                                            
+                                            selected_pos.tp_order_id = tp_order_id
+                                            selected_pos.sl_order_id = sl_order_id
+                                            
+                                            db.commit()
+                                            
+                                            st.success(f"✅ Pozisyon #{selected_pos.id} yeniden açıldı!")
+                                            st.info(f"Reopen Count: {selected_pos.reopen_count} | Entry: ${new_entry_price:.4f}")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ OKX'ten pozisyon bilgisi alınamadı")
                                     else:
                                         st.error(f"❌ {message}")
                         
