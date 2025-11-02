@@ -302,38 +302,53 @@ def show_new_trade_page():
                             st.rerun()
                     
                     with col2:
-                        st.write("**⏹️ Pozisyonu Kapat**")
+                        st.write("**⏹️ Pozisyon İşlemleri**")
                         st.warning(f"Pozisyon: {selected_pos.symbol} - {selected_pos.side}")
                         st.caption(f"Miktar: ${selected_pos.amount_usdt:.2f} | Kaldıraç: {selected_pos.leverage}x")
                         
-                        if st.button("⏹️ Pozisyonu Kapat", key=f"btn_close_{selected_position_id}", type="secondary"):
-                            with st.spinner("Pozisyon kapatılıyor..."):
-                                position_side = selected_pos.position_side if selected_pos.position_side else ("long" if selected_pos.side == "LONG" else "short")
-                                okx_pos = client.get_position(str(selected_pos.symbol), position_side)
-                                close_side = "sell" if selected_pos.side == "LONG" else "buy"
-                                
-                                if okx_pos:
-                                    quantity = abs(int(float(okx_pos.get('positionAmt', 0))))
-                                    if quantity > 0:
-                                        success = client.close_position_market(
-                                            str(selected_pos.symbol),
-                                            close_side,
-                                            quantity,
-                                            position_side
-                                        )
-                                        if success:
-                                            selected_pos.is_open = False
-                                            selected_pos.closed_at = datetime.utcnow()
-                                            selected_pos.close_reason = "Manuel kapatma"
-                                            db.commit()
-                                            st.success("✅ Pozisyon başarıyla kapatıldı!")
-                                            st.rerun()
+                        col2_1, col2_2 = st.columns(2)
+                        
+                        with col2_1:
+                            if st.button("⏹️ Kapat", key=f"btn_close_{selected_position_id}", type="secondary", use_container_width=True):
+                                with st.spinner("Pozisyon kapatılıyor..."):
+                                    position_side = selected_pos.position_side if selected_pos.position_side else ("long" if selected_pos.side == "LONG" else "short")
+                                    okx_pos = client.get_position(str(selected_pos.symbol), position_side)
+                                    close_side = "sell" if selected_pos.side == "LONG" else "buy"
+                                    
+                                    if okx_pos:
+                                        quantity = abs(int(float(okx_pos.get('positionAmt', 0))))
+                                        if quantity > 0:
+                                            success = client.close_position_market(
+                                                str(selected_pos.symbol),
+                                                close_side,
+                                                quantity,
+                                                position_side
+                                            )
+                                            if success:
+                                                selected_pos.is_open = False
+                                                selected_pos.closed_at = datetime.utcnow()
+                                                selected_pos.close_reason = "Manuel kapatma"
+                                                db.commit()
+                                                st.success("✅ Pozisyon başarıyla kapatıldı!")
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ Pozisyon kapatılamadı")
                                         else:
-                                            st.error("❌ Pozisyon kapatılamadı")
+                                            st.error("❌ Pozisyon miktarı 0 - zaten kapalı olabilir")
                                     else:
-                                        st.error("❌ Pozisyon miktarı 0 - zaten kapalı olabilir")
+                                        st.error("❌ OKX'te pozisyon bulunamadı")
+                        
+                        with col2_2:
+                            if st.button("🗑️ Sil", key=f"btn_delete_{selected_position_id}", type="secondary", use_container_width=True):
+                                if st.session_state.get(f'confirm_delete_{selected_position_id}', False):
+                                    db.delete(selected_pos)
+                                    db.commit()
+                                    st.success("✅ Pozisyon database'den silindi!")
+                                    st.rerun()
                                 else:
-                                    st.error("❌ OKX'te pozisyon bulunamadı")
+                                    st.session_state[f'confirm_delete_{selected_position_id}'] = True
+                                    st.warning("⚠️ Tekrar 'Sil' butonuna basarak onaylayın!")
+                                    st.rerun()
     finally:
         db.close()
 
