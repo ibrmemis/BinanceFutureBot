@@ -118,7 +118,12 @@ Preferred communication style: Simple, everyday language.
 - **Position Mode**: Long/Short mode (separate long and short positions)
 - **Margin Type**: Cross margin (tdMode="cross")
 - **Order Type**: Market orders for entry
-- **Quantity Calculation**: Based on USDT amount and leverage: `contracts = int((amount_usdt * leverage) / current_price)`
+- **Position Value & Margin Calculation**:
+  - User inputs **Position Value** (total position size in USDT)
+  - Example: 1000 USDT position with 10x leverage
+  - Margin used: `position_value / leverage` = 1000 / 10 = **100 USDT**
+  - Contracts: `int(position_value / current_price)` = 1000 / 187 ≈ **5 contracts**
+  - UI displays calculated margin automatically
 - **TP/SL Implementation**: 
   - Automatic TP/SL algo orders placed immediately after market order execution
   - TP/SL calculated from USDT PnL targets: `price = entry ± (pnl_usdt / quantity)`
