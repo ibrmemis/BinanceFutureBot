@@ -332,6 +332,7 @@ class OKXTestnetClient:
                         return {
                             'positionAmt': pos.get('pos', '0'),
                             'entryPrice': pos.get('avgPx', '0'),
+                            'breakevenPrice': pos.get('bePx', pos.get('avgPx', '0')),
                             'unrealizedProfit': pos.get('upl', '0'),
                             'leverage': pos.get('lever', '1'),
                             'posId': pos.get('posId', None)

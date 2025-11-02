@@ -82,23 +82,68 @@ class Try1Strategy:
         okx_position = self.client.get_position(symbol, position_side)
         pos_id = okx_position.get('posId') if okx_position else None
         
+        try:
+            be_px = okx_position.get('breakevenPrice', '') if okx_position else ''
+            breakeven_price = float(be_px) if be_px else entry_price
+        except (ValueError, TypeError):
+            breakeven_price = entry_price
+            print(f"Using entry price as breakeven: ${entry_price:.4f}")
+        
         tp_price, sl_price = self.calculate_tp_sl_prices(
-            entry_price=entry_price,
+            entry_price=breakeven_price,
             side=side,
             tp_usdt=tp_usdt,
             sl_usdt=sl_usdt,
             quantity=quantity
         )
         
-        tp_order_id, sl_order_id = self.client.place_tp_sl_orders(
-            symbol=symbol,
-            side=side,
-            quantity=quantity,
-            entry_price=entry_price,
-            tp_price=tp_price,
-            sl_price=sl_price,
-            position_side=position_side
-        )
+        sl_order_id = None
+        current_price_check = self.client.get_symbol_price(symbol)
+        if current_price_check and sl_price and self.client.trade_api:
+            is_valid_sl = (side == "LONG" and sl_price < current_price_check) or \
+                          (side == "SHORT" and sl_price > current_price_check)
+            if is_valid_sl:
+                from okx_client import OKXTestnetClient
+                inst_id = self.client.convert_symbol_to_okx(symbol)
+                close_side = "sell" if side == "LONG" else "buy"
+                sl_result = self.client.trade_api.place_algo_order(
+                    instId=inst_id,
+                    tdMode="cross",
+                    side=close_side,
+                    posSide=position_side,
+                    ordType="trigger",
+                    sz=str(int(quantity)),
+                    triggerPx=str(round(sl_price, 4)),
+                    orderPx="-1"
+                )
+                if sl_result.get('code') == '0' and sl_result.get('data'):
+                    sl_order_id = sl_result['data'][0]['algoId']
+                    print(f"SL order placed immediately: {sl_order_id} @ ${sl_price:.4f}")
+        
+        time.sleep(5)
+        
+        tp_order_id = None
+        current_price_check = self.client.get_symbol_price(symbol)
+        if current_price_check and tp_price and self.client.trade_api:
+            is_valid_tp = (side == "LONG" and tp_price > current_price_check) or \
+                          (side == "SHORT" and tp_price < current_price_check)
+            if is_valid_tp:
+                from okx_client import OKXTestnetClient
+                inst_id = self.client.convert_symbol_to_okx(symbol)
+                close_side = "sell" if side == "LONG" else "buy"
+                tp_result = self.client.trade_api.place_algo_order(
+                    instId=inst_id,
+                    tdMode="cross",
+                    side=close_side,
+                    posSide=position_side,
+                    ordType="trigger",
+                    sz=str(int(quantity)),
+                    triggerPx=str(round(tp_price, 4)),
+                    orderPx="-1"
+                )
+                if tp_result.get('code') == '0' and tp_result.get('data'):
+                    tp_order_id = tp_result['data'][0]['algoId']
+                    print(f"TP order placed after 5 seconds: {tp_order_id} @ ${tp_price:.4f} (breakeven: ${breakeven_price:.4f})")
         
         tp_sl_msg = ""
         if tp_order_id and sl_order_id:

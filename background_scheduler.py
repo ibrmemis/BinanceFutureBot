@@ -42,6 +42,48 @@ class PositionMonitor:
         except Exception as e:
             print(f"Error checking positions: {e}")
     
+    def cancel_orphaned_orders(self):
+        try:
+            self._ensure_strategy()
+            if not self.strategy or not self.strategy.client.is_configured():
+                return
+            
+            all_orders = self.strategy.client.get_algo_orders()
+            if not all_orders:
+                return
+            
+            all_positions = self.strategy.client.get_all_positions()
+            position_keys = set()
+            for pos in all_positions:
+                inst_id = pos.get('instId', '')
+                pos_side = pos.get('posSide', '')
+                pos_amt = abs(float(pos.get('positionAmt', 0)))
+                if pos_amt > 0:
+                    position_keys.add((inst_id, pos_side))
+            
+            cancelled_count = 0
+            for order in all_orders:
+                if order.get('state') != 'live':
+                    continue
+                
+                inst_id = order.get('instId', '')
+                pos_side = order.get('posSide', '')
+                
+                if (inst_id, pos_side) not in position_keys:
+                    algo_id = order.get('algoId')
+                    if algo_id:
+                        symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '') + 'USDT'
+                        result = self.strategy.client.cancel_algo_order(symbol, algo_id)
+                        if result:
+                            cancelled_count += 1
+                            print(f"Cancelled orphaned order: {algo_id} ({inst_id} {pos_side})")
+            
+            if cancelled_count > 0:
+                print(f"Total orphaned orders cancelled: {cancelled_count}")
+                
+        except Exception as e:
+            print(f"Error cancelling orphaned orders: {e}")
+    
     def reopen_closed_positions(self):
         try:
             self._ensure_strategy()
@@ -93,6 +135,14 @@ class PositionMonitor:
             'interval',
             minutes=1,
             id='position_checker',
+            replace_existing=True
+        )
+        
+        self.scheduler.add_job(
+            self.cancel_orphaned_orders,
+            'interval',
+            minutes=1,
+            id='order_canceller',
             replace_existing=True
         )
         
