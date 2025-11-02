@@ -45,7 +45,8 @@ class Try1Strategy:
         tp_usdt: float,
         sl_usdt: float,
         parent_position_id: int | None = None,
-        reopen_count: int = 0
+        reopen_count: int = 0,
+        save_to_db: bool = True
     ) -> tuple[bool, str, int | None]:
         if not self.client.is_configured():
             return False, "OKX API anahtarları yapılandırılmamış", None
@@ -99,6 +100,17 @@ class Try1Strategy:
             position_side=position_side
         )
         
+        tp_sl_msg = ""
+        if tp_order_id and sl_order_id:
+            tp_sl_msg = f" (TP: ${tp_price:.4f}, SL: ${sl_price:.4f})"
+        elif tp_order_id:
+            tp_sl_msg = f" (TP: ${tp_price:.4f})"
+        elif sl_order_id:
+            tp_sl_msg = f" (SL: ${sl_price:.4f})"
+        
+        if not save_to_db:
+            return True, f"Pozisyon açıldı (DB'ye kaydedilmedi): {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", None
+        
         db = SessionLocal()
         try:
             position = Position(
@@ -124,14 +136,6 @@ class Try1Strategy:
             db.refresh(position)
             
             position_id = position.id
-            
-            tp_sl_msg = ""
-            if tp_order_id and sl_order_id:
-                tp_sl_msg = f" (TP: ${tp_price:.4f}, SL: ${sl_price:.4f})"
-            elif tp_order_id:
-                tp_sl_msg = f" (TP: ${tp_price:.4f})"
-            elif sl_order_id:
-                tp_sl_msg = f" (SL: ${sl_price:.4f})"
             
             return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_id
         except Exception as e:

@@ -370,81 +370,63 @@ def show_active_positions_page():
         st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
         return
     
-    db = SessionLocal()
-    try:
-        db_positions = db.query(Position).filter(Position.is_open == True).order_by(Position.opened_at.desc()).all()
+    okx_positions = client.get_all_positions()
+    
+    if not okx_positions:
+        st.info("Şu anda OKX'te aktif pozisyon bulunmuyor.")
+    else:
+        st.success(f"Toplam {len(okx_positions)} aktif pozisyon (OKX'ten)")
         
-        if not db_positions:
-            st.info("Şu anda aktif pozisyon bulunmuyor.")
-        else:
-            st.success(f"Toplam {len(db_positions)} aktif pozisyon")
+        for okx_pos in okx_positions:
+            inst_id = okx_pos.get('instId', '')
+            symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '')
+            position_side_raw = okx_pos.get('posSide', 'long')
+            side = "LONG" if position_side_raw == "long" else "SHORT"
             
-            for pos in db_positions:
-                position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+            entry_price = float(okx_pos.get('entryPrice', 0))
+            unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+            leverage = okx_pos.get('leverage', '1')
+            position_amt = abs(float(okx_pos.get('positionAmt', 0)))
+            pos_id = okx_pos.get('posId', 'N/A')
+            
+            current_price = client.get_symbol_price(symbol)
+            
+            with st.container():
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
                 
-                okx_pos = client.get_position(str(pos.symbol), position_side)
+                with col1:
+                    st.metric("Coin", symbol)
                 
-                if pos.position_id and okx_pos:
-                    if okx_pos.get('posId') != pos.position_id:
-                        st.warning(f"⚠️ {pos.symbol} - Position ID eşleşmiyor (DB: {pos.position_id}, OKX: {okx_pos.get('posId')})")
-                        continue
+                with col2:
+                    direction_color = "🟢" if side == "LONG" else "🔴"
+                    st.metric("Yön", f"{direction_color} {side}")
                 
-                if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
-                    real_entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))
-                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
-                    current_price = client.get_symbol_price(str(pos.symbol))
-                    
-                    with st.container():
-                        col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 2, 1])
-                        
-                        with col1:
-                            st.metric("Coin", str(pos.symbol))
-                        
-                        with col2:
-                            side_value = str(pos.side)
-                            direction_color = "🟢" if side_value == "LONG" else "🔴"
-                            st.metric("Yön", f"{direction_color} {side_value}")
-                        
-                        with col3:
-                            leverage_val = cast(int, pos.leverage)
-                            st.metric("Kaldıraç", f"{leverage_val}x")
-                        
-                        with col4:
-                            amount_val = cast(float, pos.amount_usdt)
-                            st.metric("Miktar", f"${amount_val:.2f}")
-                        
-                        with col5:
-                            reopen_val = cast(int, pos.reopen_count) if pos.reopen_count is not None else 0
-                            if reopen_val > 0:
-                                st.metric("Yeniden Açılma", reopen_val)
-                        
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        
-                        with col1:
-                            st.caption(f"Giriş: ${real_entry_price:.4f}")
-                        
-                        with col2:
-                            if current_price:
-                                st.caption(f"Şu an: ${current_price:.4f}")
-                            else:
-                                st.caption("Fiyat: N/A")
-                        
-                        with col3:
-                            pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
-                            st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
-                        
-                        with col4:
-                            st.caption(f"TP: ${pos.tp_usdt:.2f}")
-                        
-                        with col5:
-                            st.caption(f"SL: ${pos.sl_usdt:.2f}")
-                        
-                        st.caption(f"📅 Açılış: {pos.opened_at.strftime('%Y-%m-%d %H:%M:%S')} UTC | 📊 Miktar: {pos.quantity} kontrat")
-                        st.divider()
-                else:
-                    st.warning(f"⚠️ {pos.symbol} pozisyonu OKX'te bulunamadı veya kapanmış (DB güncellemesi bekleniyor)")
-    finally:
-        db.close()
+                with col3:
+                    st.metric("Kaldıraç", f"{leverage}x")
+                
+                with col4:
+                    st.metric("Kontrat", f"{int(position_amt)}")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.caption(f"Giriş: ${entry_price:.4f}")
+                
+                with col2:
+                    if current_price:
+                        st.caption(f"Şu an: ${current_price:.4f}")
+                    else:
+                        st.caption("Fiyat: N/A")
+                
+                with col3:
+                    pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
+                    st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
+                
+                with col4:
+                    st.caption(f"PosID: {pos_id}")
+                
+                st.divider()
+    
 
 def show_history_page():
     st.header("📈 Geçmiş İşlemler")

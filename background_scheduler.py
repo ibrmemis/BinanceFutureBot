@@ -69,10 +69,15 @@ class PositionMonitor:
                         tp_usdt=pos.tp_usdt,
                         sl_usdt=pos.sl_usdt,
                         parent_position_id=pos.id,
-                        reopen_count=pos.reopen_count + 1
+                        reopen_count=pos.reopen_count + 1,
+                        save_to_db=False
                     )
                     
                     if success:
+                        pos.reopen_count += 1
+                        from datetime import datetime
+                        pos.closed_at = datetime.utcnow() - timedelta(minutes=15)
+                        db.commit()
                         print(f"Pozisyon yeniden açıldı: {message}")
                     else:
                         print(f"Pozisyon yeniden açılamadı: {message}")
