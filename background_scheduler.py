@@ -48,7 +48,8 @@ class PositionMonitor:
             if not self.strategy or not self.strategy.client.is_configured():
                 return
             
-            all_orders = self.strategy.client.get_algo_orders()
+            # TÜM emir türlerini çek (trigger, conditional, iceberg, twap)
+            all_orders = self.strategy.client.get_all_open_orders()
             if not all_orders:
                 return
             
@@ -68,6 +69,7 @@ class PositionMonitor:
                 
                 inst_id = order.get('instId', '')
                 pos_side = order.get('posSide', '')
+                ord_type = order.get('ordType', 'unknown')
                 
                 if (inst_id, pos_side) not in position_keys:
                     algo_id = order.get('algoId')
@@ -76,7 +78,7 @@ class PositionMonitor:
                         result = self.strategy.client.cancel_algo_order(symbol, algo_id)
                         if result:
                             cancelled_count += 1
-                            print(f"Cancelled orphaned order: {algo_id} ({inst_id} {pos_side})")
+                            print(f"Cancelled orphaned {ord_type} order: {algo_id} ({inst_id} {pos_side})")
             
             if cancelled_count > 0:
                 print(f"Total orphaned orders cancelled: {cancelled_count}")

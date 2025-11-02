@@ -726,7 +726,11 @@ def show_orders_page():
                     st.metric("Tür", trigger_type)
                 
                 with col4:
-                    st.metric("Trigger Fiyat", f"${float(trigger_px):.4f}")
+                    try:
+                        trigger_display = f"${float(trigger_px):.4f}" if trigger_px and trigger_px != '' else "N/A"
+                    except (ValueError, TypeError):
+                        trigger_display = "N/A"
+                    st.metric("Trigger Fiyat", trigger_display)
                 
                 with col5:
                     st.metric("Miktar", size)
