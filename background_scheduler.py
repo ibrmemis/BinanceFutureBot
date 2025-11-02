@@ -75,7 +75,6 @@ class PositionMonitor:
                     
                     if success:
                         pos.reopen_count += 1
-                        from datetime import datetime
                         pos.closed_at = datetime.utcnow() - timedelta(minutes=15)
                         db.commit()
                         print(f"Pozisyon yeniden açıldı: {message}")

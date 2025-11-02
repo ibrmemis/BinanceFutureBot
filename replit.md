@@ -39,10 +39,17 @@ Preferred communication style: Simple, everyday language.
 - **ORM**: SQLAlchemy
 - **Key Tables**:
   - `api_credentials`: Stores encrypted OKX API keys, secrets, and passphrases
-  - `positions`: Tracks all trading positions (open/closed status, entry/exit prices, PnL, position_side, reopen_count, etc.)
+  - `positions`: Tracks **ONLY manually created positions** (auto-reopened positions exist only on OKX)
     - **Position ID Tracking**: Each position stores OKX's unique `posId` field in the `position_id` column
     - **Position Identification**: Positions are tracked by their unique OKX `posId`, not by order/trade IDs
     - **Open/Closed Status**: Position status is determined by checking if the `posId` exists in OKX and has non-zero position amount
+    - **Auto-Reopen Prevention**: When a position is successfully auto-reopened, its `closed_at` timestamp is backdated by 15 minutes to prevent duplicate reopening
+
+- **Database vs OKX**:
+  - **New Trade Page**: Shows positions from database (manual positions only)
+  - **Active Positions Page**: Shows ALL positions from OKX in real-time (both manual and auto-reopened)
+  - **Auto-reopened positions**: Exist only on OKX, NOT saved to database
+  - **Manual positions**: Saved to database with all details for tracking and history
 
 - **Security**: API credentials are encrypted using Fernet (symmetric encryption) with a key derived from SESSION_SECRET environment variable
 - **Rationale**: 
@@ -50,6 +57,7 @@ Preferred communication style: Simple, everyday language.
   - Encryption ensures API keys are never stored in plaintext
   - SQLAlchemy abstracts database operations and enables easy migration to other databases if needed
   - Using OKX's `posId` ensures accurate position tracking even when positions are reopened or modified
+  - Storing only manual positions keeps database clean and prevents duplicate tracking
 
 ### Authentication & Authorization
 - **API Key Management**: Dual-source credential loading (environment variables take precedence over database)
