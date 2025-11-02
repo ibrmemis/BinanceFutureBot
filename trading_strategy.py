@@ -36,17 +36,25 @@ class Try1Strategy:
         side: str,
         tp_usdt: float,
         sl_usdt: float,
-        quantity: float
+        quantity: float,
+        symbol: str
     ) -> tuple[float, float]:
-        pnl_per_contract_tp = tp_usdt / quantity
-        pnl_per_contract_sl = sl_usdt / quantity
+        # Get contract value (BTC: 0.01, ETH: 0.1, SOL: 1.0)
+        contract_value = self.client.get_contract_value(symbol)
+        
+        # Calculate actual BTC/ETH/SOL amount
+        crypto_amount = quantity * contract_value
+        
+        # Calculate price change needed for TP/SL USDT
+        price_change_tp = tp_usdt / crypto_amount
+        price_change_sl = sl_usdt / crypto_amount
         
         if side == "LONG":
-            tp_price = entry_price + pnl_per_contract_tp
-            sl_price = entry_price - pnl_per_contract_sl
+            tp_price = entry_price + price_change_tp
+            sl_price = entry_price - price_change_sl
         else:
-            tp_price = entry_price - pnl_per_contract_tp
-            sl_price = entry_price + pnl_per_contract_sl
+            tp_price = entry_price - price_change_tp
+            sl_price = entry_price + price_change_sl
         
         return tp_price, sl_price
     
@@ -103,7 +111,8 @@ class Try1Strategy:
             side=side,
             tp_usdt=tp_usdt,
             sl_usdt=sl_usdt,
-            quantity=quantity
+            quantity=quantity,
+            symbol=symbol
         )
         
         sl_order_id = None
