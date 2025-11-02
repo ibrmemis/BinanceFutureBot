@@ -96,15 +96,10 @@ class Try1Strategy:
         okx_position = self.client.get_position(symbol, position_side)
         pos_id = okx_position.get('posId') if okx_position else None
         
-        try:
-            be_px = okx_position.get('breakevenPrice', '') if okx_position else ''
-            breakeven_price = float(be_px) if be_px else entry_price
-        except (ValueError, TypeError):
-            breakeven_price = entry_price
-            print(f"Using entry price as breakeven: ${entry_price:.4f}")
-        
+        # Use entry_price instead of breakeven for TP/SL calculation
+        # User's TP/SL USDT values represent net profit/loss expectations
         tp_price, sl_price = self.calculate_tp_sl_prices(
-            entry_price=breakeven_price,
+            entry_price=entry_price,
             side=side,
             tp_usdt=tp_usdt,
             sl_usdt=sl_usdt,
