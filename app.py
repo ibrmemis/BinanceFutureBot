@@ -82,7 +82,7 @@ def main():
                     st.warning("Lütfen tüm alanları doldurun.")
         return
     
-    tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📈 Geçmiş İşlemler", "⚙️ Ayarlar"])
+    tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📋 Emirler", "📈 Geçmiş İşlemler", "⚙️ Ayarlar"])
     
     with tabs[0]:
         show_new_trade_page()
@@ -91,9 +91,12 @@ def main():
         show_active_positions_page()
     
     with tabs[2]:
-        show_history_page()
+        show_orders_page()
     
     with tabs[3]:
+        show_history_page()
+    
+    with tabs[4]:
         show_settings_page()
 
 def show_new_trade_page():
@@ -331,6 +334,182 @@ def show_history_page():
             st.dataframe(df, use_container_width=True, hide_index=True)
     finally:
         db.close()
+
+def show_orders_page():
+    st.header("📋 Strateji Emirleri (TP/SL)")
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col2:
+        if st.button("🔄 Yenile  ", use_container_width=True):
+            st.rerun()
+    
+    client = OKXTestnetClient()
+    
+    if not client.is_configured():
+        st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
+        return
+    
+    with st.spinner("OKX'ten emirler alınıyor..."):
+        algo_orders = client.get_algo_orders()
+    
+    if not algo_orders:
+        st.info("Şu anda aktif emir bulunmuyor.")
+    else:
+        st.success(f"Toplam {len(algo_orders)} aktif emir")
+        
+        for order in algo_orders:
+            inst_id = order.get('instId', 'N/A')
+            algo_id = order.get('algoId', 'N/A')
+            order_type = order.get('ordType', 'N/A')
+            side = order.get('side', 'N/A')
+            pos_side = order.get('posSide', 'N/A')
+            trigger_px = order.get('triggerPx', '0')
+            size = order.get('sz', '0')
+            state = order.get('state', 'N/A')
+            
+            trigger_type = "🎯 TP" if side == "sell" and pos_side == "long" else "🎯 TP" if side == "buy" and pos_side == "short" else "🛡️ SL"
+            
+            with st.container():
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 1, 1, 1, 1, 1])
+                
+                with col1:
+                    st.metric("Coin", inst_id)
+                
+                with col2:
+                    direction_color = "🟢" if pos_side == "long" else "🔴"
+                    st.metric("Pozisyon", f"{direction_color} {pos_side.upper()}")
+                
+                with col3:
+                    st.metric("Tür", trigger_type)
+                
+                with col4:
+                    st.metric("Trigger Fiyat", f"${float(trigger_px):.4f}")
+                
+                with col5:
+                    st.metric("Miktar", size)
+                
+                with col6:
+                    state_emoji = "✅" if state == "live" else "⏸️"
+                    st.metric("Durum", f"{state_emoji} {state}")
+                
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    st.caption(f"Emir ID: {algo_id}")
+                
+                with col2:
+                    if st.button(f"🗑️ İptal", key=f"cancel_{algo_id}"):
+                        with st.spinner("İptal ediliyor..."):
+                            symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
+                            success = client.cancel_algo_order(symbol_base, algo_id)
+                            if success:
+                                st.success("✅ Emir iptal edildi!")
+                                st.rerun()
+                            else:
+                                st.error("❌ İptal edilemedi")
+                
+                with col3:
+                    with st.popover("✏️ Düzenle"):
+                        st.caption("Trigger fiyatını değiştir")
+                        new_trigger_px = st.number_input(
+                            "Yeni Trigger Fiyat",
+                            min_value=0.0001,
+                            value=float(trigger_px),
+                            step=0.0001,
+                            key=f"edit_trigger_{algo_id}"
+                        )
+                        new_size = st.number_input(
+                            "Yeni Miktar",
+                            min_value=1,
+                            value=int(float(size)),
+                            step=1,
+                            key=f"edit_size_{algo_id}"
+                        )
+                        if st.button("💾 Kaydet", key=f"save_{algo_id}"):
+                            with st.spinner("Güncelleniyor..."):
+                                symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
+                                success = client.amend_algo_order(
+                                    symbol_base,
+                                    algo_id,
+                                    new_trigger_px,
+                                    new_size
+                                )
+                                if success:
+                                    st.success("✅ Emir güncellendi!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Güncellenemedi")
+                
+                st.divider()
+    
+    st.divider()
+    
+    with st.expander("➕ Yeni Manuel TP/SL Emri Oluştur"):
+        st.info("Mevcut pozisyonlar için manuel TP veya SL emri oluşturabilirsiniz.")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            manual_symbol = st.selectbox(
+                "Coin Çifti",
+                ["SOLUSDT", "BTCUSDT", "ETHUSDT"],
+                key="manual_symbol"
+            )
+            
+            manual_pos_side = st.selectbox(
+                "Pozisyon Yönü",
+                ["long", "short"],
+                key="manual_pos_side"
+            )
+            
+            manual_order_type = st.selectbox(
+                "Emir Türü",
+                ["TP (Take Profit)", "SL (Stop Loss)"],
+                key="manual_order_type"
+            )
+        
+        with col2:
+            manual_trigger_px = st.number_input(
+                "Trigger Fiyat",
+                min_value=0.0001,
+                value=100.0,
+                step=0.0001,
+                key="manual_trigger_px"
+            )
+            
+            manual_size = st.number_input(
+                "Miktar (Kontrat)",
+                min_value=1,
+                value=1,
+                step=1,
+                key="manual_size"
+            )
+        
+        if st.button("📤 Manuel Emir Oluştur"):
+            with st.spinner("Emir oluşturuluyor..."):
+                close_side = "sell" if manual_pos_side == "long" else "buy"
+                inst_id = client.convert_symbol_to_okx(manual_symbol)
+                
+                try:
+                    result = client.trade_api.place_algo_order(
+                        instId=inst_id,
+                        tdMode="cross",
+                        side=close_side,
+                        posSide=manual_pos_side,
+                        ordType="trigger",
+                        sz=str(manual_size),
+                        triggerPx=str(round(manual_trigger_px, 4)),
+                        orderPx="-1"
+                    )
+                    
+                    if result.get('code') == '0':
+                        st.success(f"✅ Manuel emir oluşturuldu! ID: {result['data'][0]['algoId']}")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Hata: {result.get('msg', 'Bilinmeyen hata')}")
+                except Exception as e:
+                    st.error(f"❌ Hata: {e}")
 
 def show_settings_page():
     st.header("⚙️ Sistem Ayarları")

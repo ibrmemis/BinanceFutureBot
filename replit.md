@@ -15,7 +15,12 @@ Preferred communication style: Simple, everyday language.
 ### Frontend Architecture
 - **Framework**: Streamlit web application
 - **Purpose**: Provides a user-friendly dashboard for monitoring trading positions and bot status
-- **Key Features**: Wide layout configuration, real-time position tracking, API key validation with passphrase support
+- **Key Features**: 
+  - Wide layout configuration
+  - Real-time position tracking with live OKX API data
+  - API key validation with passphrase support
+  - Manual order management (create, edit, cancel TP/SL orders)
+  - Five main tabs: New Trade, Active Positions, Orders, History, Settings
 - **Rationale**: Streamlit was chosen for its simplicity in creating data-driven dashboards without complex frontend development, making it ideal for rapid prototyping and deployment of trading interfaces
 
 ### Backend Architecture

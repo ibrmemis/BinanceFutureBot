@@ -265,6 +265,25 @@ class OKXTestnetClient:
             print(f"Error placing TP/SL orders: {e}")
             return None, None
     
+    def get_algo_orders(self, symbol: Optional[str] = None, order_type: str = "trigger") -> list:
+        if not self.trade_api:
+            return []
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol) if symbol else ''
+            
+            result = self.trade_api.order_algos_list(
+                ordType=order_type,
+                instType='SWAP',
+                instId=inst_id
+            )
+            
+            if result.get('code') == '0' and result.get('data'):
+                return result['data']
+            return []
+        except Exception as e:
+            print(f"Error getting algo orders: {e}")
+            return []
+    
     def cancel_algo_order(self, symbol: str, algo_id: str) -> bool:
         if not self.trade_api:
             return False
@@ -277,6 +296,27 @@ class OKXTestnetClient:
             return result.get('code') == '0'
         except Exception as e:
             print(f"Error canceling algo order: {e}")
+            return False
+    
+    def amend_algo_order(self, symbol: str, algo_id: str, new_trigger_price: float, quantity: int) -> bool:
+        if not self.trade_api:
+            return False
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            params = {
+                'instId': inst_id,
+                'algoId': algo_id,
+                'newSz': str(quantity)
+            }
+            
+            if new_trigger_price:
+                params['newTpTriggerPx'] = str(round(new_trigger_price, 4))
+                params['newTpOrdPx'] = '-1'
+            
+            result = self.trade_api.amend_algo_order(**params)
+            return result.get('code') == '0'
+        except Exception as e:
+            print(f"Error amending algo order: {e}")
             return False
     
     def get_position(self, symbol: str, position_side: str = "long") -> Optional[Dict]:
