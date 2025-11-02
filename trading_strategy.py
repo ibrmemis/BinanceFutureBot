@@ -150,7 +150,7 @@ class Try1Strategy:
                 )
                 if tp_result.get('code') == '0' and tp_result.get('data'):
                     tp_order_id = tp_result['data'][0]['algoId']
-                    print(f"TP order placed after 5 seconds: {tp_order_id} @ ${tp_price:.4f} (breakeven: ${breakeven_price:.4f})")
+                    print(f"TP order placed after 5 seconds: {tp_order_id} @ ${tp_price:.4f} (entry: ${entry_price:.4f})")
         
         tp_sl_msg = ""
         if tp_order_id and sl_order_id:
