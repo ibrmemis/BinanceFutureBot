@@ -178,8 +178,8 @@ class Try1Strategy:
             db.commit()
             db.refresh(position)
             
-            # Cast to int to satisfy type checker (after refresh, id is populated as int)
-            position_db_id = int(position.id) if position.id is not None else None
+            # Extract id value using getattr to satisfy type checker
+            position_db_id = int(getattr(position, 'id')) if getattr(position, 'id', None) is not None else None
             
             return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_db_id
         except Exception as e:
@@ -198,23 +198,33 @@ class Try1Strategy:
             open_positions = db.query(Position).filter(Position.is_open == True).all()
             
             for pos in open_positions:
-                if pos.position_side is not None:
-                    position_side = pos.position_side
-                else:
-                    position_side = "long" if pos.side == "LONG" else "short"
+                # Extract all values from SQLAlchemy columns for type safety
+                pos_side_value = str(pos.position_side) if pos.position_side is not None else None
+                pos_symbol = str(pos.symbol)
+                pos_tp_usdt = float(getattr(pos, 'tp_usdt')) if getattr(pos, 'tp_usdt', None) is not None else None
+                pos_sl_usdt = float(getattr(pos, 'sl_usdt')) if getattr(pos, 'sl_usdt', None) is not None else None
+                pos_entry_price_val = float(getattr(pos, 'entry_price')) if getattr(pos, 'entry_price', None) is not None else None
                 
-                okx_pos = self.client.get_position(pos.symbol, position_side)
+                if pos_side_value is not None:
+                    position_side = pos_side_value
+                else:
+                    position_side = "long" if str(pos.side) == "LONG" else "short"
+                
+                okx_pos = self.client.get_position(pos_symbol, position_side)
                 
                 if not okx_pos:
-                    print(f"Could not fetch position from OKX: {pos.symbol} {position_side}")
+                    print(f"Could not fetch position from OKX: {pos_symbol} {position_side}")
                     continue
                 
                 okx_pos_id = okx_pos.get('posId')
                 okx_pos_amt = float(okx_pos.get('positionAmt', 0))
                 
-                if pos.position_id:
-                    if okx_pos_id and okx_pos_id != pos.position_id and okx_pos_amt != 0:
-                        print(f"Position ID mismatch: DB={pos.position_id}, OKX={okx_pos_id}")
+                # Extract position_id value for comparison
+                pos_position_id = str(pos.position_id) if pos.position_id is not None else None
+                
+                if pos_position_id is not None:
+                    if okx_pos_id and okx_pos_id != pos_position_id and okx_pos_amt != 0:
+                        print(f"Position ID mismatch: DB={pos_position_id}, OKX={okx_pos_id}")
                         continue
                 
                 if okx_pos_amt == 0:
@@ -227,7 +237,7 @@ class Try1Strategy:
                     realized_pnl = 0.0
                     close_reason = "MANUAL"
                     
-                    trades = self.client.get_account_trades(pos.symbol, limit=100)
+                    trades = self.client.get_account_trades(pos_symbol, limit=100)
                     
                     if trades and len(trades) > 0:
                         position_opened_ts = int(pos.opened_at.timestamp() * 1000)
@@ -245,9 +255,10 @@ class Try1Strategy:
                                 pnl = float(trade.get('fillPnl', 0))
                                 realized_pnl += pnl
                         
-                        if pos.tp_usdt is not None and realized_pnl >= float(pos.tp_usdt):
+                        # Use pre-extracted TP/SL values
+                        if pos_tp_usdt is not None and realized_pnl >= pos_tp_usdt:
                             close_reason = "TP"
-                        elif pos.sl_usdt is not None and realized_pnl <= -float(pos.sl_usdt):
+                        elif pos_sl_usdt is not None and realized_pnl <= -pos_sl_usdt:
                             close_reason = "SL"
                     
                     db.query(Position).filter(Position.id == pos.id).update({
@@ -262,17 +273,19 @@ class Try1Strategy:
                     unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
                     current_entry = float(okx_pos.get('entryPrice', 0))
                     
-                    if current_entry > 0 and pos.entry_price is not None and abs(current_entry - float(pos.entry_price)) > 0.01:
+                    # Use pre-extracted entry_price value
+                    if current_entry > 0 and pos_entry_price_val is not None and abs(current_entry - pos_entry_price_val) > 0.01:
                         db.query(Position).filter(Position.id == pos.id).update({
                             'entry_price': current_entry
                         })
                         db.commit()
                     
-                    if pos.tp_usdt is not None and unrealized_pnl >= float(pos.tp_usdt):
-                        print(f"TP target reached for {pos.symbol} {pos.side}: ${unrealized_pnl:.2f}")
+                    # Use pre-extracted TP/SL values for monitoring unrealized PnL
+                    if pos_tp_usdt is not None and unrealized_pnl >= pos_tp_usdt:
+                        print(f"TP target reached for {pos_symbol} {str(pos.side)}: ${unrealized_pnl:.2f}")
                     
-                    if pos.sl_usdt is not None and unrealized_pnl <= -float(pos.sl_usdt):
-                        print(f"SL target reached for {pos.symbol} {pos.side}: ${unrealized_pnl:.2f}")
+                    if pos_sl_usdt is not None and unrealized_pnl <= -pos_sl_usdt:
+                        print(f"SL target reached for {pos_symbol} {str(pos.side)}: ${unrealized_pnl:.2f}")
             
         except Exception as e:
             print(f"Error checking positions: {e}")
