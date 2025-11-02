@@ -126,8 +126,24 @@ def show_new_trade_page():
             step=1
         )
         
-        margin_used = amount_usdt / leverage
-        st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
+        # Calculate real position value
+        client = OKXTestnetClient()
+        current_price = client.get_symbol_price(symbol)
+        if current_price:
+            exact_contracts = amount_usdt / current_price
+            actual_contracts = max(1, round(exact_contracts))
+            actual_position_value = actual_contracts * current_price
+            
+            margin_used = actual_position_value / leverage
+            st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
+            
+            # Show warning if actual value differs significantly
+            if abs(actual_position_value - amount_usdt) / amount_usdt > 0.1:  # >10% difference
+                st.warning(f"⚠️ **Gerçek Pozisyon Değeri: ${actual_position_value:.2f}** (Kontrat: {actual_contracts})")
+                st.caption(f"OKX tam sayı kontrat gerektiriyor. Fiyat: ${current_price:.2f}")
+        else:
+            margin_used = amount_usdt / leverage
+            st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
     
     with col2:
         side = st.selectbox(

@@ -12,8 +12,14 @@ class Try1Strategy:
         leverage: int,
         current_price: float
     ) -> int:
+        # Calculate exact contracts needed for desired position value
         position_value = amount_usdt
-        contracts = int(position_value / current_price)
+        exact_contracts = position_value / current_price
+        
+        # Round to nearest whole number for better accuracy
+        contracts = round(exact_contracts)
+        
+        # Ensure minimum 1 contract (OKX requirement)
         return max(1, contracts)
     
     def calculate_tp_sl_prices(
