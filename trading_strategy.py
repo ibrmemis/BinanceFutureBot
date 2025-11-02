@@ -195,7 +195,14 @@ class Try1Strategy:
         
         db = SessionLocal()
         try:
-            open_positions = db.query(Position).filter(Position.is_open == True).all()
+            from datetime import timedelta
+            grace_period_cutoff = datetime.utcnow() - timedelta(seconds=60)
+            
+            # Only check positions older than 60 seconds (grace period for new positions)
+            open_positions = db.query(Position).filter(
+                Position.is_open == True,
+                Position.opened_at < grace_period_cutoff
+            ).all()
             
             for pos in open_positions:
                 # Extract all values from SQLAlchemy columns for type safety
