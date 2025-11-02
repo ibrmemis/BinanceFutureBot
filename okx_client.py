@@ -181,7 +181,7 @@ class OKXTestnetClient:
                 side=okx_side,
                 posSide=okx_pos_side,
                 ordType="market",
-                sz=str(int(quantity))
+                sz=str(quantity)
             )
             
             if result.get('code') == '0' and result.get('data'):
@@ -212,7 +212,7 @@ class OKXTestnetClient:
                 posSide=position_side,
                 ordType="limit",
                 px=str(price),
-                sz=str(int(quantity))
+                sz=str(quantity)
             )
             
             if result.get('code') == '0' and result.get('data'):
@@ -252,7 +252,7 @@ class OKXTestnetClient:
                         side=close_side,
                         posSide=position_side,
                         ordType="trigger",
-                        sz=str(int(quantity)),
+                        sz=str(quantity),
                         triggerPx=str(round(tp_price, 4)),
                         orderPx="-1"
                     )
@@ -275,7 +275,7 @@ class OKXTestnetClient:
                         side=close_side,
                         posSide=position_side,
                         ordType="trigger",
-                        sz=str(int(quantity)),
+                        sz=str(quantity),
                         triggerPx=str(round(sl_price, 4)),
                         orderPx="-1"
                     )
