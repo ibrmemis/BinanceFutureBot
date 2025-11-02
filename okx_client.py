@@ -113,6 +113,34 @@ class OKXTestnetClient:
             print(f"Error setting leverage: {e}")
             return False
     
+    def get_contract_value(self, symbol: str) -> float:
+        """Get contract value (ctVal) for a symbol from OKX API"""
+        if not self.public_api:
+            # Default fallbacks if API not available
+            if 'ETH' in symbol.upper():
+                return 0.1
+            elif 'BTC' in symbol.upper():
+                return 0.01
+            else:
+                return 1.0
+        
+        inst_id = self.convert_symbol_to_okx(symbol)
+        try:
+            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            if result.get('code') == '0' and result.get('data'):
+                ct_val = float(result['data'][0].get('ctVal', 1))
+                return ct_val
+        except Exception as e:
+            print(f"Error getting contract value: {e}")
+        
+        # Default fallbacks
+        if 'ETH' in symbol.upper():
+            return 0.1
+        elif 'BTC' in symbol.upper():
+            return 0.01
+        else:
+            return 1.0
+    
     def get_symbol_price(self, symbol: str) -> Optional[float]:
         if not self.market_api:
             return None

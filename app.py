@@ -126,21 +126,27 @@ def show_new_trade_page():
             step=1
         )
         
-        # Calculate real position value
+        # Calculate real position value using correct contract specifications
         client = OKXTestnetClient()
         current_price = client.get_symbol_price(symbol)
         if current_price:
-            exact_contracts = amount_usdt / current_price
-            actual_contracts = max(1, round(exact_contracts))
-            actual_position_value = actual_contracts * current_price
+            # Get contract value (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
+            contract_value = client.get_contract_value(symbol)
+            contract_usdt_value = contract_value * current_price
+            
+            # Calculate exact contracts and round to 2 decimals
+            exact_contracts = amount_usdt / contract_usdt_value
+            actual_contracts = max(0.01, round(exact_contracts, 2))
+            actual_position_value = actual_contracts * contract_usdt_value
             
             margin_used = actual_position_value / leverage
             st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
+            st.caption(f"📊 Kontrat: {actual_contracts} (1 kontrat = {contract_value} {symbol[:3]} = ${contract_usdt_value:.2f})")
             
-            # Show warning if actual value differs significantly
-            if abs(actual_position_value - amount_usdt) / amount_usdt > 0.1:  # >10% difference
-                st.warning(f"⚠️ **Gerçek Pozisyon Değeri: ${actual_position_value:.2f}** (Kontrat: {actual_contracts})")
-                st.caption(f"OKX tam sayı kontrat gerektiriyor. Fiyat: ${current_price:.2f}")
+            # Show info if actual value differs
+            diff_pct = abs(actual_position_value - amount_usdt) / amount_usdt * 100
+            if diff_pct > 5:  # >5% difference
+                st.info(f"ℹ️ **Gerçek Pozisyon Değeri: ${actual_position_value:.2f}** (Fark: {diff_pct:.1f}%)")
         else:
             margin_used = amount_usdt / leverage
             st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")

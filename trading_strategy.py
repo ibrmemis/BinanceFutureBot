@@ -10,17 +10,25 @@ class Try1Strategy:
         self,
         amount_usdt: float,
         leverage: int,
-        current_price: float
-    ) -> int:
+        current_price: float,
+        symbol: str = None
+    ) -> float:
+        # Get contract value from OKX API (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
+        if symbol:
+            contract_value = self.client.get_contract_value(symbol)
+        else:
+            contract_value = 1.0
+        
         # Calculate exact contracts needed for desired position value
-        position_value = amount_usdt
-        exact_contracts = position_value / current_price
+        # Contract USDT value = contract_value * current_price
+        contract_usdt_value = contract_value * current_price
+        exact_contracts = amount_usdt / contract_usdt_value
         
-        # Round to nearest whole number for better accuracy
-        contracts = round(exact_contracts)
+        # Round to 2 decimal places (OKX supports fractional contracts with 0.01 precision)
+        contracts = round(exact_contracts, 2)
         
-        # Ensure minimum 1 contract (OKX requirement)
-        return max(1, contracts)
+        # Ensure minimum 0.01 contracts (OKX requirement)
+        return max(0.01, contracts)
     
     def calculate_tp_sl_prices(
         self,
@@ -66,9 +74,9 @@ class Try1Strategy:
         if not current_price:
             return False, "Fiyat alınamadı", None
         
-        quantity = self.calculate_quantity_for_usdt(amount_usdt, leverage, current_price)
-        if quantity == 0:
-            return False, "Geçersiz miktar", None
+        quantity = self.calculate_quantity_for_usdt(amount_usdt, leverage, current_price, symbol)
+        if quantity < 0.01:
+            return False, "Geçersiz miktar (minimum 0.01 kontrat)", None
         
         order = self.client.place_market_order(
             symbol=symbol,
