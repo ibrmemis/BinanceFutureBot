@@ -208,39 +208,56 @@ class OKXTestnetClient:
             tp_order_id = None
             sl_order_id = None
             
+            current_price = self.get_symbol_price(symbol)
+            if not current_price:
+                print("Cannot get current price for TP/SL validation")
+                return None, None
+            
             if tp_price:
-                tp_result = self.trade_api.place_algo_order(
-                    instId=inst_id,
-                    tdMode="cross",
-                    side=close_side,
-                    posSide=position_side,
-                    ordType="conditional",
-                    sz=str(int(quantity)),
-                    tpTriggerPx=str(tp_price),
-                    tpOrdPx="-1"
-                )
-                if tp_result.get('code') == '0' and tp_result.get('data'):
-                    tp_order_id = tp_result['data'][0]['algoId']
-                    print(f"TP order placed: {tp_order_id} @ ${tp_price}")
+                is_valid_tp = (side.upper() == "LONG" and tp_price > current_price) or \
+                              (side.upper() == "SHORT" and tp_price < current_price)
+                
+                if is_valid_tp:
+                    tp_result = self.trade_api.place_algo_order(
+                        instId=inst_id,
+                        tdMode="cross",
+                        side=close_side,
+                        posSide=position_side,
+                        ordType="trigger",
+                        sz=str(int(quantity)),
+                        triggerPx=str(round(tp_price, 4)),
+                        orderPx="-1"
+                    )
+                    if tp_result.get('code') == '0' and tp_result.get('data'):
+                        tp_order_id = tp_result['data'][0]['algoId']
+                        print(f"TP order placed: {tp_order_id} @ ${tp_price:.4f} (current: ${current_price:.4f})")
+                    else:
+                        print(f"TP order failed: {tp_result}")
                 else:
-                    print(f"TP order failed: {tp_result}")
+                    print(f"Invalid TP price: ${tp_price:.4f} (current: ${current_price:.4f}, side: {side})")
             
             if sl_price:
-                sl_result = self.trade_api.place_algo_order(
-                    instId=inst_id,
-                    tdMode="cross",
-                    side=close_side,
-                    posSide=position_side,
-                    ordType="conditional",
-                    sz=str(int(quantity)),
-                    slTriggerPx=str(sl_price),
-                    slOrdPx="-1"
-                )
-                if sl_result.get('code') == '0' and sl_result.get('data'):
-                    sl_order_id = sl_result['data'][0]['algoId']
-                    print(f"SL order placed: {sl_order_id} @ ${sl_price}")
+                is_valid_sl = (side.upper() == "LONG" and sl_price < current_price) or \
+                              (side.upper() == "SHORT" and sl_price > current_price)
+                
+                if is_valid_sl:
+                    sl_result = self.trade_api.place_algo_order(
+                        instId=inst_id,
+                        tdMode="cross",
+                        side=close_side,
+                        posSide=position_side,
+                        ordType="trigger",
+                        sz=str(int(quantity)),
+                        triggerPx=str(round(sl_price, 4)),
+                        orderPx="-1"
+                    )
+                    if sl_result.get('code') == '0' and sl_result.get('data'):
+                        sl_order_id = sl_result['data'][0]['algoId']
+                        print(f"SL order placed: {sl_order_id} @ ${sl_price:.4f} (current: ${current_price:.4f})")
+                    else:
+                        print(f"SL order failed: {sl_result}")
                 else:
-                    print(f"SL order failed: {sl_result}")
+                    print(f"Invalid SL price: ${sl_price:.4f} (current: ${current_price:.4f}, side: {side})")
             
             return tp_order_id, sl_order_id
             
@@ -267,17 +284,17 @@ class OKXTestnetClient:
             return None
         try:
             inst_id = self.convert_symbol_to_okx(symbol)
-            result = self.account_api.get_positions(instType="SWAP", instId=inst_id, posSide=position_side)
+            result = self.account_api.get_positions(instType="SWAP", instId=inst_id)
             
             if result.get('code') == '0' and result.get('data'):
-                if len(result['data']) > 0:
-                    pos = result['data'][0]
-                    return {
-                        'positionAmt': pos.get('pos', '0'),
-                        'entryPrice': pos.get('avgPx', '0'),
-                        'unrealizedProfit': pos.get('upl', '0'),
-                        'leverage': pos.get('lever', '1')
-                    }
+                for pos in result['data']:
+                    if pos.get('posSide') == position_side:
+                        return {
+                            'positionAmt': pos.get('pos', '0'),
+                            'entryPrice': pos.get('avgPx', '0'),
+                            'unrealizedProfit': pos.get('upl', '0'),
+                            'leverage': pos.get('lever', '1')
+                        }
             return {'positionAmt': '0'}
         except Exception as e:
             print(f"Error getting position: {e}")
