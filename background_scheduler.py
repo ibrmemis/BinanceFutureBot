@@ -106,12 +106,24 @@ class PositionMonitor:
                     # Yeni pozisyon bilgilerini al
                     position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
                     
+                    # Kontrat miktarını hesapla
+                    current_price = self.strategy.client.get_symbol_price(pos.symbol)
+                    if not current_price:
+                        print(f"Fiyat alınamadı: {pos.symbol}")
+                        continue
+                    
+                    quantity = self.strategy.calculate_quantity_for_usdt(
+                        amount_usdt=pos.amount_usdt,
+                        leverage=pos.leverage,
+                        current_price=current_price,
+                        symbol=pos.symbol
+                    )
+                    
                     # Market order ile pozisyon aç
                     order_result = self.strategy.client.place_market_order(
                         symbol=pos.symbol,
                         side=pos.side,
-                        amount_usdt=pos.amount_usdt,
-                        leverage=pos.leverage,
+                        quantity=quantity,
                         position_side=position_side
                     )
                     
@@ -137,7 +149,7 @@ class PositionMonitor:
                         print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
                         continue
                     
-                    # TP/SL emirlerini yerleştir
+                    # TP/SL fiyatlarını hesapla
                     tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
                         entry_price=new_entry_price,
                         side=pos.side,
@@ -147,27 +159,16 @@ class PositionMonitor:
                         symbol=pos.symbol
                     )
                     
-                    sl_order_id = None
-                    tp_order_id = None
-                    
-                    if sl_price and self.strategy.client.trade_api:
-                        sl_order_id = self.strategy.client.place_sl_order(
-                            symbol=pos.symbol,
-                            side=pos.side,
-                            quantity=new_quantity,
-                            sl_price=sl_price,
-                            position_side=position_side
-                        )
-                    
-                    if tp_price and self.strategy.client.trade_api:
-                        time.sleep(5)
-                        tp_order_id = self.strategy.client.place_tp_order(
-                            symbol=pos.symbol,
-                            side=pos.side,
-                            quantity=new_quantity,
-                            tp_price=tp_price,
-                            position_side=position_side
-                        )
+                    # TP/SL emirlerini yerleştir
+                    tp_order_id, sl_order_id = self.strategy.client.place_tp_sl_orders(
+                        symbol=pos.symbol,
+                        side=pos.side,
+                        quantity=new_quantity,
+                        entry_price=new_entry_price,
+                        tp_price=tp_price,
+                        sl_price=sl_price,
+                        position_side=position_side
+                    )
                     
                     # Eski pozisyon kaydını yeni bilgilerle güncelle
                     pos.is_open = True
