@@ -11,7 +11,7 @@ class Try1Strategy:
         amount_usdt: float,
         leverage: int,
         current_price: float,
-        symbol: str = None
+        symbol: str | None = None
     ) -> float:
         # Get contract value from OKX API (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
         if symbol:
@@ -36,7 +36,7 @@ class Try1Strategy:
         side: str,
         tp_usdt: float,
         sl_usdt: float,
-        quantity: int
+        quantity: float
     ) -> tuple[float, float]:
         pnl_per_contract_tp = tp_usdt / quantity
         pnl_per_contract_sl = sl_usdt / quantity
