@@ -160,6 +160,9 @@ class PositionMonitor:
     def stop(self):
         if self.scheduler.running:
             self.scheduler.shutdown()
+    
+    def is_running(self):
+        return self.scheduler.running
 
 monitor = None
 
@@ -169,3 +172,21 @@ def get_monitor():
         monitor = PositionMonitor()
         monitor.start()
     return monitor
+
+def stop_monitor():
+    global monitor
+    if monitor is not None and monitor.is_running():
+        monitor.stop()
+        return True
+    return False
+
+def start_monitor():
+    global monitor
+    if monitor is None:
+        monitor = PositionMonitor()
+        monitor.start()
+        return True
+    elif not monitor.is_running():
+        monitor.start()
+        return True
+    return False
