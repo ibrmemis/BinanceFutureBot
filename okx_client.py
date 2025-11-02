@@ -292,6 +292,7 @@ class OKXTestnetClient:
             return None, None
     
     def get_algo_orders(self, symbol: Optional[str] = None, order_type: str = "trigger") -> list:
+        """Get algo orders (trigger, conditional, etc.)"""
         if not self.trade_api:
             return []
         try:
@@ -309,6 +310,44 @@ class OKXTestnetClient:
         except Exception as e:
             print(f"Error getting algo orders: {e}")
             return []
+    
+    def get_all_open_orders(self, symbol: Optional[str] = None) -> list:
+        """Get ALL open orders including algo orders, conditional orders, iceberg, etc."""
+        if not self.trade_api:
+            return []
+        
+        all_orders = []
+        
+        try:
+            # 1. Get trigger orders
+            trigger_orders = self.get_algo_orders(symbol, order_type="trigger")
+            all_orders.extend(trigger_orders)
+            
+            # 2. Get conditional orders
+            try:
+                conditional_orders = self.get_algo_orders(symbol, order_type="conditional")
+                all_orders.extend(conditional_orders)
+            except:
+                pass
+            
+            # 3. Get iceberg orders
+            try:
+                iceberg_orders = self.get_algo_orders(symbol, order_type="iceberg")
+                all_orders.extend(iceberg_orders)
+            except:
+                pass
+            
+            # 4. Get TWAP orders
+            try:
+                twap_orders = self.get_algo_orders(symbol, order_type="twap")
+                all_orders.extend(twap_orders)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Error getting all open orders: {e}")
+        
+        return all_orders
     
     def cancel_algo_order(self, symbol: str, algo_id: str) -> bool:
         if not self.trade_api:

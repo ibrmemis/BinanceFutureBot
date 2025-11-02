@@ -693,7 +693,7 @@ def show_orders_page():
         return
     
     with st.spinner("OKX'ten emirler alınıyor..."):
-        algo_orders = client.get_algo_orders()
+        algo_orders = client.get_all_open_orders()
     
     if not algo_orders:
         st.info("Şu anda aktif emir bulunmuyor.")
