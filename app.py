@@ -274,43 +274,57 @@ def show_new_trade_page():
             table_data = []
             for pos in all_positions:
                 position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                direction = "🔼 LONG" if pos.side == "LONG" else "🔽 SHORT"
                 
+                # DATABASE values (always show these)
+                db_entry_price = pos.entry_price if pos.entry_price is not None else 0
+                db_quantity = pos.quantity if pos.quantity is not None else 0
+                db_leverage = pos.leverage if pos.leverage is not None else 1
+                db_amount = pos.amount_usdt if pos.amount_usdt is not None else 0
+                db_tp = pos.tp_usdt if pos.tp_usdt is not None else 0
+                db_sl = pos.sl_usdt if pos.sl_usdt is not None else 0
+                
+                # Status and real-time data
                 if pos.is_open:
-                    okx_pos = client.get_position(str(pos.symbol), position_side)
-                    
-                    if pos.position_id and okx_pos and okx_pos.get('posId') != pos.position_id:
-                        continue
-                    
-                    if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
-                        entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))
-                        unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
-                    else:
-                        entry_price = pos.entry_price or 0
-                        unrealized_pnl = 0
-                    
-                    current_price = client.get_symbol_price(str(pos.symbol)) or 0
-                    pnl_display = f"{'🟢' if unrealized_pnl >= 0 else '🔴'} ${unrealized_pnl:.2f}"
                     status = "🟢 AÇIK"
+                    
+                    # Try to get real-time data from OKX
+                    okx_pos = client.get_position(str(pos.symbol), position_side)
+                    if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
+                        current_price = float(okx_pos.get('markPrice', 0))
+                        unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                        pnl_display = f"{'🟢' if unrealized_pnl >= 0 else '🔴'} ${unrealized_pnl:.2f}"
+                        current_price_display = f"${current_price:.4f}"
+                    else:
+                        current_price = client.get_symbol_price(str(pos.symbol)) or 0
+                        pnl_display = "—"
+                        current_price_display = f"${current_price:.4f}" if current_price > 0 else "—"
                 else:
-                    entry_price = pos.entry_price or 0
-                    current_price = client.get_symbol_price(str(pos.symbol)) or 0
-                    pnl_display = f"${pos.pnl:.2f}" if pos.pnl else "N/A"
                     status = "⚫ KAPALI"
+                    # For closed positions, current price is not meaningful
+                    current_price_display = "—"
+                    # Show final PnL from database
+                    if pos.pnl is not None:
+                        pnl_display = f"{'🟢' if pos.pnl >= 0 else '🔴'} ${pos.pnl:.2f}"
+                    else:
+                        pnl_display = "—"
                 
-                direction = "LONG" if pos.side == "LONG" else "SHORT"
+                # Reopen indicator
+                reopen_badge = f" 🔄{pos.reopen_count}" if pos.reopen_count and pos.reopen_count > 0 else ""
                 
                 table_data.append({
                     "ID": pos.id,
-                    "Durum": status,
+                    "Durum": status + reopen_badge,
                     "Coin": pos.symbol,
                     "Yön": direction,
-                    "Kaldıraç": f"{pos.leverage}x",
-                    "Miktar": f"${pos.amount_usdt:.2f}",
-                    "Giriş": f"${entry_price:.4f}",
-                    "Şu an": f"${current_price:.4f}",
+                    "Kaldıraç": f"{db_leverage}x",
+                    "Kontrat": f"{db_quantity:.2f}",
+                    "Değer": f"${db_amount:.2f}",
+                    "Giriş": f"${db_entry_price:.4f}",
+                    "Şu an": current_price_display,
                     "PnL": pnl_display,
-                    "TP": f"${pos.tp_usdt:.2f}",
-                    "SL": f"${pos.sl_usdt:.2f}",
+                    "TP": f"${db_tp:.2f}",
+                    "SL": f"${db_sl:.2f}",
                     "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M')
                 })
             
@@ -321,16 +335,17 @@ def show_new_trade_page():
                 hide_index=True,
                 column_config={
                     "ID": st.column_config.NumberColumn("ID", width="small"),
-                    "Durum": st.column_config.TextColumn("Durum", width="small"),
+                    "Durum": st.column_config.TextColumn("Durum", width="medium"),
                     "Coin": st.column_config.TextColumn("Coin", width="small"),
                     "Yön": st.column_config.TextColumn("Yön", width="small"),
                     "Kaldıraç": st.column_config.TextColumn("Kaldıraç", width="small"),
-                    "Miktar": st.column_config.TextColumn("Miktar", width="small"),
+                    "Kontrat": st.column_config.TextColumn("Kontrat", width="small"),
+                    "Değer": st.column_config.TextColumn("Değer (USDT)", width="small"),
                     "Giriş": st.column_config.TextColumn("Giriş", width="medium"),
                     "Şu an": st.column_config.TextColumn("Şu an", width="medium"),
                     "PnL": st.column_config.TextColumn("PnL", width="small"),
-                    "TP": st.column_config.TextColumn("TP", width="small"),
-                    "SL": st.column_config.TextColumn("SL", width="small"),
+                    "TP": st.column_config.TextColumn("TP (USDT)", width="small"),
+                    "SL": st.column_config.TextColumn("SL (USDT)", width="small"),
                     "Açılış": st.column_config.TextColumn("Açılış", width="medium")
                 }
             )
@@ -696,9 +711,10 @@ def show_orders_page():
                         )
                         new_size = st.number_input(
                             "Yeni Miktar",
-                            min_value=1,
-                            value=int(float(size)),
-                            step=1,
+                            min_value=0.01,
+                            value=max(0.01, float(size)),
+                            step=0.01,
+                            format="%.2f",
                             key=f"edit_size_{algo_id}"
                         )
                         if st.button("💾 Kaydet", key=f"save_{algo_id}"):
