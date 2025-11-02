@@ -150,7 +150,7 @@ def show_new_trade_page():
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("🚀 Pozisyon Aç", type="primary", use_container_width=True):
+        if st.button("🚀 Pozisyon Aç", type="primary", width="stretch"):
             with st.spinner("Pozisyon açılıyor..."):
                 strategy = Try1Strategy()
                 success, message, position_id = strategy.open_position(
@@ -170,7 +170,7 @@ def show_new_trade_page():
     
     with col2:
         client = OKXTestnetClient()
-        if st.button("🔄 Mevcut Fiyat", use_container_width=True):
+        if st.button("🔄 Mevcut Fiyat", width="stretch"):
             price = client.get_symbol_price(symbol)
             if price:
                 st.info(f"{symbol}: ${price:,.2f}")
@@ -247,7 +247,7 @@ def show_new_trade_page():
             df = pd.DataFrame(table_data)
             st.dataframe(
                 df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config={
                     "ID": st.column_config.NumberColumn("ID", width="small"),
@@ -312,7 +312,7 @@ def show_new_trade_page():
                         col2_1, col2_2 = st.columns(2)
                         
                         with col2_1:
-                            if st.button("⏹️ Kapat", key=f"btn_close_{selected_position_id}", type="secondary", use_container_width=True):
+                            if st.button("⏹️ Kapat", key=f"btn_close_{selected_position_id}", type="secondary", width="stretch"):
                                 with st.spinner("Pozisyon kapatılıyor..."):
                                     position_side = selected_pos.position_side if selected_pos.position_side else ("long" if selected_pos.side == "LONG" else "short")
                                     okx_pos = client.get_position(str(selected_pos.symbol), position_side)
@@ -342,7 +342,7 @@ def show_new_trade_page():
                                         st.error("❌ OKX'te pozisyon bulunamadı")
                         
                         with col2_2:
-                            if st.button("🗑️ Sil", key=f"btn_delete_{selected_position_id}", type="secondary", use_container_width=True):
+                            if st.button("🗑️ Sil", key=f"btn_delete_{selected_position_id}", type="secondary", width="stretch"):
                                 if st.session_state.get(f'confirm_delete_{selected_position_id}', False):
                                     db.delete(selected_pos)
                                     db.commit()
@@ -361,7 +361,7 @@ def show_active_positions_page():
     col1, col2 = st.columns([3, 1])
     
     with col2:
-        if st.button("🔄 Yenile", use_container_width=True):
+        if st.button("🔄 Yenile", width="stretch"):
             st.rerun()
     
     client = OKXTestnetClient()
@@ -452,7 +452,7 @@ def show_history_page():
     col1, col2 = st.columns([3, 1])
     
     with col2:
-        if st.button("🔄 Yenile ", use_container_width=True):
+        if st.button("🔄 Yenile ", width="stretch"):
             st.rerun()
     
     db = SessionLocal()
@@ -499,7 +499,7 @@ def show_history_page():
                 })
             
             df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
     finally:
         db.close()
 
@@ -509,7 +509,7 @@ def show_orders_page():
     col1, col2 = st.columns([3, 1])
     
     with col2:
-        if st.button("🔄 Yenile  ", use_container_width=True):
+        if st.button("🔄 Yenile  ", width="stretch"):
             st.rerun()
     
     client = OKXTestnetClient()
