@@ -356,6 +356,30 @@ class OKXTestnetClient:
             print(f"Error getting positions: {e}")
             return []
     
+    def close_position_market(self, symbol: str, side: str, quantity: int, position_side: str = "long") -> bool:
+        if not self.trade_api:
+            return False
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            result = self.trade_api.place_order(
+                instId=inst_id,
+                tdMode="cross",
+                side=side,
+                ordType="market",
+                sz=str(quantity),
+                posSide=position_side
+            )
+            
+            if result.get('code') == '0':
+                print(f"Position closed: {result}")
+                return True
+            else:
+                print(f"Failed to close position: {result}")
+                return False
+        except Exception as e:
+            print(f"Error closing position: {e}")
+            return False
+    
     def cancel_order(self, symbol: str, order_id: str) -> bool:
         if not self.trade_api:
             return False

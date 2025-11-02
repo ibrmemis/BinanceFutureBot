@@ -191,6 +191,124 @@ def show_new_trade_page():
         - ✅ Her 1 dakikada pozisyonlar kontrol edilir
         - ✅ Yeni işlem açılmadan önce eski işlemin kapanması beklenir
         """)
+    
+    st.divider()
+    st.subheader("📋 Strateji ile Oluşturulmuş Pozisyonlar")
+    
+    client = OKXTestnetClient()
+    
+    if not client.is_configured():
+        st.warning("OKX API yapılandırılmamış.")
+        return
+    
+    db = SessionLocal()
+    try:
+        active_positions = db.query(Position).filter(Position.is_open == True).order_by(Position.opened_at.desc()).all()
+        
+        if not active_positions:
+            st.info("Şu anda strateji ile oluşturulmuş aktif pozisyon bulunmuyor.")
+        else:
+            st.success(f"Toplam {len(active_positions)} aktif pozisyon")
+            
+            for pos in active_positions:
+                position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                okx_pos = client.get_position(str(pos.symbol), position_side)
+                
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+                    
+                    with col1:
+                        st.metric("Coin", str(pos.symbol))
+                    
+                    with col2:
+                        side_value = str(pos.side)
+                        direction_color = "🟢" if side_value == "LONG" else "🔴"
+                        st.metric("Yön", f"{direction_color} {side_value}")
+                    
+                    with col3:
+                        st.metric("Kaldıraç", f"{pos.leverage}x")
+                    
+                    with col4:
+                        st.metric("Miktar", f"${pos.amount_usdt:.2f}")
+                    
+                    with col5:
+                        if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
+                            unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                            pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
+                            st.metric("PnL", f"{pnl_color} ${unrealized_pnl:.2f}")
+                        else:
+                            st.metric("PnL", "N/A")
+                    
+                    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+                    
+                    with col1:
+                        if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
+                            entry_price = float(okx_pos.get('entryPrice', pos.entry_price or 0))
+                            st.caption(f"Giriş: ${entry_price:.4f}")
+                        else:
+                            st.caption(f"Giriş: ${pos.entry_price:.4f}")
+                    
+                    with col2:
+                        current_price = client.get_symbol_price(str(pos.symbol))
+                        if current_price:
+                            st.caption(f"Şu an: ${current_price:.4f}")
+                        else:
+                            st.caption("Fiyat: N/A")
+                    
+                    with col3:
+                        with st.popover("✏️ TP/SL"):
+                            st.caption("TP/SL Değerlerini Değiştir")
+                            new_tp = st.number_input(
+                                "Yeni TP (USDT)",
+                                min_value=0.1,
+                                value=float(pos.tp_usdt),
+                                step=1.0,
+                                key=f"new_tp_{pos.id}"
+                            )
+                            new_sl = st.number_input(
+                                "Yeni SL (USDT)",
+                                min_value=0.1,
+                                value=float(pos.sl_usdt),
+                                step=1.0,
+                                key=f"new_sl_{pos.id}"
+                            )
+                            if st.button("💾 Güncelle", key=f"update_tpsl_{pos.id}"):
+                                pos.tp_usdt = new_tp
+                                pos.sl_usdt = new_sl
+                                db.commit()
+                                st.success("✅ TP/SL güncellendi!")
+                                st.info("Not: Mevcut TP/SL emirlerini iptal edip yenilerini oluşturmanız gerekebilir.")
+                                st.rerun()
+                    
+                    with col4:
+                        if st.button("⏹️ Kapat", key=f"close_{pos.id}"):
+                            with st.spinner("Pozisyon kapatılıyor..."):
+                                close_side = "sell" if pos.side == "LONG" else "buy"
+                                if okx_pos:
+                                    quantity = abs(int(float(okx_pos.get('positionAmt', 0))))
+                                    if quantity > 0:
+                                        success = client.close_position_market(
+                                            str(pos.symbol),
+                                            close_side,
+                                            quantity,
+                                            position_side
+                                        )
+                                        if success:
+                                            pos.is_open = False
+                                            pos.closed_at = datetime.utcnow()
+                                            pos.close_reason = "Manuel kapatma"
+                                            db.commit()
+                                            st.success("✅ Pozisyon kapatıldı!")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Kapatılamadı")
+                                    else:
+                                        st.error("Pozisyon miktarı 0")
+                    
+                    st.caption(f"🎯 TP: ${pos.tp_usdt:.2f} | 🛡️ SL: ${pos.sl_usdt:.2f} | 📅 {pos.opened_at.strftime('%Y-%m-%d %H:%M')} UTC")
+                    st.divider()
+    finally:
+        db.close()
 
 def show_active_positions_page():
     st.header("📊 Aktif Pozisyonlar (Real-Time OKX)")
