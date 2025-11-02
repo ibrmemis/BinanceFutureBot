@@ -103,7 +103,6 @@ class Try1Strategy:
             is_valid_sl = (side == "LONG" and sl_price < current_price_check) or \
                           (side == "SHORT" and sl_price > current_price_check)
             if is_valid_sl:
-                from okx_client import OKXTestnetClient
                 inst_id = self.client.convert_symbol_to_okx(symbol)
                 close_side = "sell" if side == "LONG" else "buy"
                 sl_result = self.client.trade_api.place_algo_order(
@@ -128,7 +127,6 @@ class Try1Strategy:
             is_valid_tp = (side == "LONG" and tp_price > current_price_check) or \
                           (side == "SHORT" and tp_price < current_price_check)
             if is_valid_tp:
-                from okx_client import OKXTestnetClient
                 inst_id = self.client.convert_symbol_to_okx(symbol)
                 close_side = "sell" if side == "LONG" else "buy"
                 tp_result = self.client.trade_api.place_algo_order(
