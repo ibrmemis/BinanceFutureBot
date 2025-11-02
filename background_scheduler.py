@@ -236,14 +236,15 @@ class PositionMonitor:
         return self.scheduler.running
 
 monitor = None
+manually_stopped = False
 
 def get_monitor():
-    global monitor
+    global monitor, manually_stopped
     try:
-        if monitor is None:
+        if monitor is None and not manually_stopped:
             monitor = PositionMonitor()
             monitor.start()
-        elif not monitor.is_running():
+        elif monitor is not None and not monitor.is_running() and not manually_stopped:
             try:
                 monitor.stop()
             except:
@@ -252,26 +253,29 @@ def get_monitor():
             monitor.start()
     except Exception as e:
         print(f"Error getting monitor: {e}")
-        monitor = PositionMonitor()
-        try:
-            monitor.start()
-        except:
-            pass
+        if not manually_stopped:
+            monitor = PositionMonitor()
+            try:
+                monitor.start()
+            except:
+                pass
     return monitor
 
 def stop_monitor():
-    global monitor
+    global monitor, manually_stopped
     try:
         if monitor is not None and monitor.is_running():
             monitor.stop()
+            manually_stopped = True
             return True
     except Exception as e:
         print(f"Error stopping monitor: {e}")
     return False
 
 def start_monitor():
-    global monitor
+    global monitor, manually_stopped
     try:
+        manually_stopped = False
         if monitor is None:
             monitor = PositionMonitor()
             monitor.start()
