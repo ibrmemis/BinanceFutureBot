@@ -271,16 +271,26 @@ class Try1Strategy:
                             
                             trade_side = trade.get('side', '')
                             trade_pos_side = trade.get('posSide', '')
+                            exec_type = trade.get('execType', '')
                             
                             if trade_pos_side == position_side:
                                 pnl = float(trade.get('fillPnl', 0))
                                 realized_pnl += pnl
+                                
+                                # Check if algo order (TP/SL) triggered
+                                if exec_type == 'T' and trade_side in ['sell', 'buy']:
+                                    # Determine TP or SL based on PnL
+                                    if pnl > 0:
+                                        close_reason = "TP"
+                                    elif pnl < 0:
+                                        close_reason = "SL"
                         
-                        # Use pre-extracted TP/SL values
-                        if pos_tp_usdt is not None and realized_pnl >= pos_tp_usdt:
-                            close_reason = "TP"
-                        elif pos_sl_usdt is not None and realized_pnl <= -pos_sl_usdt:
-                            close_reason = "SL"
+                        # Fallback to PnL-based detection if execType didn't determine it
+                        if close_reason == "MANUAL":
+                            if pos_tp_usdt is not None and realized_pnl >= pos_tp_usdt:
+                                close_reason = "TP"
+                            elif pos_sl_usdt is not None and realized_pnl <= -pos_sl_usdt:
+                                close_reason = "SL"
                     
                     db.query(Position).filter(Position.id == pos.id).update({
                         'pnl': realized_pnl,
