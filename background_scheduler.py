@@ -120,11 +120,30 @@ class PositionMonitor:
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
                     if current_time >= closed_time + timedelta(minutes=self.auto_reopen_delay_minutes):
                         pos = db.query(Position).filter(Position.id == pos_id).first()
-                        if pos and not pos.is_open:
+                        if not pos:
+                            # Pozisyon bulunamadı - queue'dan çıkar
+                            positions_to_remove.append(pos_id)
+                            continue
+                        
+                        # OKX'te pozisyon açık mı kontrol et
+                        position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                        okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
+                        
+                        is_open_on_okx = False
+                        if okx_pos:
+                            pos_amt = abs(float(okx_pos.get('positionAmt', 0)))
+                            is_open_on_okx = pos_amt > 0
+                        
+                        if is_open_on_okx:
+                            # Pozisyon zaten OKX'te açık - queue'dan çıkar
+                            positions_to_remove.append(pos_id)
+                            print(f"Pozisyon zaten OKX'te açık: {pos.symbol} {pos.side} - queue'dan çıkarıldı")
+                        elif pos.is_open:
+                            # Database'de açık ama OKX'te kapalı - yeniden aç
                             positions_to_reopen.append((pos_id, pos))
                         else:
-                            # Pozisyon bulunamadı veya zaten açık - queue'dan çıkar
-                            positions_to_remove.append(pos_id)
+                            # Database'de kapalı ve OKX'te de kapalı - yeniden aç
+                            positions_to_reopen.append((pos_id, pos))
                 
                 for pos_id, pos in positions_to_reopen:
                     try:
