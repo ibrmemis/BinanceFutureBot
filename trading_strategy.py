@@ -216,9 +216,9 @@ class Try1Strategy:
         db = SessionLocal()
         try:
             from datetime import timedelta
-            grace_period_cutoff = datetime.utcnow() - timedelta(seconds=60)
+            grace_period_cutoff = datetime.utcnow() - timedelta(seconds=120)
             
-            # Only check positions older than 60 seconds (grace period for new positions)
+            # Only check positions older than 120 seconds (grace period for new positions - OKX needs time to update)
             open_positions = db.query(Position).filter(
                 Position.is_open == True,
                 Position.opened_at < grace_period_cutoff

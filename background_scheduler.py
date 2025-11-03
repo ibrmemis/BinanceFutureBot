@@ -34,8 +34,11 @@ class PositionMonitor:
                 ).all()
                 
                 for pos in recently_closed:
-                    if pos.id not in self.closed_positions_for_reopen:
+                    # Sadece gerçekten kapanmış pozisyonları reopen queue'ya ekle
+                    # (pnl değeri varsa pozisyon gerçekten kapatılmış demektir)
+                    if pos.id not in self.closed_positions_for_reopen and pos.pnl is not None:
                         self.closed_positions_for_reopen[pos.id] = pos.closed_at
+                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side} (PnL: ${pos.pnl:.2f})")
                 
             finally:
                 db.close()
