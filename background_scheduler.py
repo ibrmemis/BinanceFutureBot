@@ -6,10 +6,11 @@ from database import SessionLocal, Position
 from trading_strategy import Try1Strategy
 
 class PositionMonitor:
-    def __init__(self):
+    def __init__(self, auto_reopen_delay_minutes: int = 5):
         self.scheduler = BackgroundScheduler()
         self.strategy = None
         self.closed_positions_for_reopen = {}
+        self.auto_reopen_delay_minutes = auto_reopen_delay_minutes
     
     def _ensure_strategy(self):
         if self.strategy is None:
@@ -98,7 +99,7 @@ class PositionMonitor:
                 current_time = datetime.utcnow()
                 
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
-                    if current_time >= closed_time + timedelta(minutes=5):
+                    if current_time >= closed_time + timedelta(minutes=self.auto_reopen_delay_minutes):
                         pos = db.query(Position).filter(Position.id == pos_id).first()
                         if pos and not pos.is_open and pos.reopen_count == 0:
                             positions_to_reopen.append(pos)
@@ -186,7 +187,7 @@ class PositionMonitor:
                     pos.reopen_count += 1
                     
                     db.commit()
-                    print(f"✅ Pozisyon yeniden açıldı (1. ve SON kez): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | UYARI: Bu pozisyon artık tekrar otomatik açılmayacak!")
+                    print(f"✅ Pozisyon yeniden açıldı (1. ve SON kez): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme süresi: {self.auto_reopen_delay_minutes} dakika | UYARI: Bu pozisyon artık tekrar otomatik açılmayacak!")
                         
             finally:
                 db.close()
@@ -272,21 +273,23 @@ def stop_monitor():
         print(f"Error stopping monitor: {e}")
     return False
 
-def start_monitor():
+def start_monitor(auto_reopen_delay_minutes: int = 5):
     global monitor, manually_stopped
     try:
         manually_stopped = False
         if monitor is None:
-            monitor = PositionMonitor()
+            monitor = PositionMonitor(auto_reopen_delay_minutes)
             monitor.start()
+            print(f"🤖 Monitor başlatıldı - Auto-reopen süresi: {auto_reopen_delay_minutes} dakika")
             return True
         elif not monitor.is_running():
             try:
                 monitor.stop()
             except:
                 pass
-            monitor = PositionMonitor()
+            monitor = PositionMonitor(auto_reopen_delay_minutes)
             monitor.start()
+            print(f"🤖 Monitor başlatıldı - Auto-reopen süresi: {auto_reopen_delay_minutes} dakika")
             return True
     except Exception as e:
         print(f"Error starting monitor: {e}")

@@ -36,6 +36,9 @@ def check_api_keys():
     return False
 
 def main():
+    if 'auto_reopen_delay_minutes' not in st.session_state:
+        st.session_state.auto_reopen_delay_minutes = 5
+    
     st.title("📈 OKX Futures Trading Bot (Demo Trading)")
     st.caption("OKX Demo Trading üzerinde çalışan otomatik futures trading botu")
     
@@ -58,8 +61,9 @@ def main():
             st.error("⏸️ Bot Durdu")
             st.caption("Pozisyonlar takip edilmiyor")
             if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
-                if start_monitor():
-                    st.success("Bot başlatıldı!")
+                reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 5)
+                if start_monitor(reopen_delay):
+                    st.success(f"Bot başlatıldı! (Auto-reopen: {reopen_delay} dk)")
                     st.rerun()
                 else:
                     st.error("Bot başlatılamadı!")
@@ -1141,6 +1145,25 @@ def show_settings_page():
     
     st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
     
+    st.info("⚙️ **Auto-Reopen Ayarları**")
+    
+    auto_reopen_delay = st.number_input(
+        "Pozisyon kapandıktan kaç dakika sonra yeniden açılsın?",
+        min_value=1,
+        max_value=60,
+        value=st.session_state.auto_reopen_delay_minutes,
+        step=1,
+        help="Pozisyon kapandıktan sonra bu süre kadar beklenip otomatik olarak yeniden açılır",
+        key="auto_reopen_delay_input"
+    )
+    
+    if auto_reopen_delay != st.session_state.auto_reopen_delay_minutes:
+        st.session_state.auto_reopen_delay_minutes = auto_reopen_delay
+        st.success(f"✅ Auto-reopen süresi {auto_reopen_delay} dakika olarak güncellendi!")
+        st.info("⚠️ Değişikliğin uygulanması için botu durdurup tekrar başlatın.")
+    
+    st.divider()
+    
     from background_scheduler import get_monitor, stop_monitor, start_monitor
     
     monitor = get_monitor()
@@ -1149,12 +1172,13 @@ def show_settings_page():
     if is_running:
         st.success("✅ **Background Scheduler ÇALIŞIYOR**")
         
-        st.info("""
+        current_delay = st.session_state.auto_reopen_delay_minutes
+        st.info(f"""
         **Otomatik İzleme Sistemi Aktif:**
         
         - ✅ Pozisyonlar her **1 dakikada** kontrol ediliyor
         - ✅ Orphaned emirler her **1 dakikada** temizleniyor
-        - ✅ Kapanan pozisyonlar **5 dakika** sonra otomatik yeniden açılıyor
+        - ✅ Kapanan pozisyonlar **{current_delay} dakika** sonra otomatik yeniden açılıyor
         - ✅ Tüm işlemler veritabanına kaydediliyor
         """)
         
@@ -1188,8 +1212,9 @@ def show_settings_page():
         
         with col1:
             if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
-                if start_monitor():
-                    st.success("✅ Background scheduler başlatıldı!")
+                reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 5)
+                if start_monitor(reopen_delay):
+                    st.success(f"✅ Background scheduler başlatıldı! (Auto-reopen: {reopen_delay} dakika)")
                     st.rerun()
                 else:
                     st.error("❌ Başlatılamadı")
