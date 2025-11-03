@@ -689,10 +689,11 @@ def show_history_page():
     with tab1:
         st.subheader("OKX Position History (Tüm Kapanmış Pozisyonlar)")
         st.caption("OKX'ten alınan tüm geçmiş pozisyonlar. 'OKX'ten Çek' butonuna basarak güncelleyin.")
+        st.info("⏰ Saatler UTC (GMT+0) formatındadır. Yerel saat için +3 saat ekleyin.")
         
         db = SessionLocal()
         try:
-            history_records = db.query(PositionHistory).order_by(PositionHistory.c_time.desc()).limit(100).all()
+            history_records = db.query(PositionHistory).order_by(PositionHistory.u_time.desc()).limit(100).all()
             
             if not history_records:
                 st.info("Henüz OKX'ten veri alınmamış. Yukarıdaki '📥 OKX'ten Çek' butonuna tıklayın.")
@@ -730,7 +731,7 @@ def show_history_page():
                         "Miktar": f"{rec.close_total_pos:.2f}" if rec.close_total_pos else "-",
                         "PnL": f"${rec.pnl:.2f}" if rec.pnl is not None else "-",
                         "PnL %": f"{rec.pnl_ratio*100:.2f}%" if rec.pnl_ratio is not None else "-",
-                        "Tarih": rec.c_time.strftime('%Y-%m-%d %H:%M') if rec.c_time else "-"
+                        "Kapanış (UTC)": rec.u_time.strftime('%Y-%m-%d %H:%M:%S') if rec.u_time else "-"
                     })
                 
                 df = pd.DataFrame(data)
