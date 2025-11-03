@@ -101,7 +101,7 @@ class PositionMonitor:
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
                     if current_time >= closed_time + timedelta(minutes=self.auto_reopen_delay_minutes):
                         pos = db.query(Position).filter(Position.id == pos_id).first()
-                        if pos and not pos.is_open and pos.reopen_count == 0:
+                        if pos and not pos.is_open:
                             positions_to_reopen.append(pos)
                         del self.closed_positions_for_reopen[pos_id]
                 
@@ -173,21 +173,28 @@ class PositionMonitor:
                         position_side=position_side
                     )
                     
-                    # Eski pozisyon kaydını yeni bilgilerle güncelle
-                    pos.is_open = True
-                    pos.entry_price = new_entry_price
-                    pos.quantity = new_quantity
-                    pos.position_id = new_pos_id
-                    pos.opened_at = datetime.utcnow()
-                    pos.closed_at = None
-                    pos.pnl = None
-                    pos.close_reason = None
-                    pos.tp_order_id = tp_order_id
-                    pos.sl_order_id = sl_order_id
-                    pos.reopen_count += 1
+                    # YENİ pozisyon kaydı oluştur (parent_position_id ile eski pozisyona bağla)
+                    new_position = Position(
+                        symbol=pos.symbol,
+                        side=pos.side,
+                        amount_usdt=pos.amount_usdt,
+                        leverage=pos.leverage,
+                        tp_usdt=pos.tp_usdt,
+                        sl_usdt=pos.sl_usdt,
+                        entry_price=new_entry_price,
+                        quantity=new_quantity,
+                        position_id=new_pos_id,
+                        position_side=position_side,
+                        tp_order_id=tp_order_id,
+                        sl_order_id=sl_order_id,
+                        is_open=True,
+                        opened_at=datetime.utcnow(),
+                        parent_position_id=pos.id
+                    )
                     
+                    db.add(new_position)
                     db.commit()
-                    print(f"✅ Pozisyon yeniden açıldı (1. ve SON kez): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme süresi: {self.auto_reopen_delay_minutes} dakika | UYARI: Bu pozisyon artık tekrar otomatik açılmayacak!")
+                    print(f"✅ Pozisyon yeniden açıldı: {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | Parent ID: {pos.id} → New ID: {new_position.id}")
                         
             finally:
                 db.close()
