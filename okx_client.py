@@ -499,3 +499,29 @@ class OKXTestnetClient:
         except Exception as e:
             print(f"Error getting trades: {e}")
             return []
+    
+    def get_positions_history(self, inst_type: str = "SWAP", limit: int = 100) -> list:
+        """
+        Get positions history from OKX
+        
+        Args:
+            inst_type: Instrument type (SWAP, FUTURES, etc.)
+            limit: Number of results (max 100)
+        
+        Returns:
+            List of historical position data
+        """
+        if not self.account_api:
+            return []
+        try:
+            result = self.account_api.get_positions_history(
+                instType=inst_type,
+                limit=str(limit)
+            )
+            
+            if result.get('code') == '0' and result.get('data'):
+                return list(result['data'])
+            return []
+        except Exception as e:
+            print(f"Error getting positions history: {e}")
+            return []

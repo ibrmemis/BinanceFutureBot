@@ -91,6 +91,29 @@ class Position(Base):
     def __repr__(self):
         return f"<Position {self.symbol} {self.side} ${self.amount_usdt}>"
 
+class PositionHistory(Base):
+    __tablename__ = "position_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    inst_id = Column(String, nullable=False)
+    pos_id = Column(String, nullable=False, unique=True, index=True)
+    mgn_mode = Column(String)
+    pos_side = Column(String)
+    open_avg_px = Column(Float)
+    close_avg_px = Column(Float)
+    open_max_pos = Column(Float)
+    close_total_pos = Column(Float)
+    pnl = Column(Float)
+    pnl_ratio = Column(Float)
+    leverage = Column(Integer)
+    close_type = Column(String)
+    c_time = Column(DateTime)
+    u_time = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<PositionHistory {self.inst_id} {self.pos_side} PnL: ${self.pnl}>"
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
