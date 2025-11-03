@@ -358,9 +358,6 @@ def show_new_trade_page():
             from background_scheduler import get_monitor
             monitor = get_monitor()
             
-            # Track if we have any countdowns to show
-            has_active_countdown = False
-            
             for pos in all_positions:
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
                 
@@ -383,13 +380,40 @@ def show_new_trade_page():
                         remaining = reopen_time - datetime.utcnow()
                         
                         if remaining.total_seconds() > 0:
-                            minutes = int(remaining.total_seconds() // 60)
-                            seconds = int(remaining.total_seconds() % 60)
-                            st.caption(f"⏱️ **{minutes:02d}:{seconds:02d}**")
-                            has_active_countdown = True  # Mark that we have an active countdown
+                            total_seconds = int(remaining.total_seconds())
+                            # JavaScript-based live countdown (no page refresh needed)
+                            import streamlit.components.v1 as components
+                            components.html(
+                                f"""
+                                <div id="countdown_{pos.id}" style="font-weight: bold; color: #FF4B4B;">
+                                    <span style="font-size: 14px;">⏱️ <span id="timer_{pos.id}">00:00</span></span>
+                                </div>
+                                <script>
+                                    let seconds = {total_seconds};
+                                    const timer = document.getElementById('timer_{pos.id}');
+                                    
+                                    function updateTimer() {{
+                                        if (seconds <= 0) {{
+                                            timer.parentElement.innerHTML = '🔄 <strong>Açılıyor...</strong>';
+                                            return;
+                                        }}
+                                        
+                                        const mins = Math.floor(seconds / 60);
+                                        const secs = seconds % 60;
+                                        timer.textContent = 
+                                            String(mins).padStart(2, '0') + ':' + 
+                                            String(secs).padStart(2, '0');
+                                        seconds--;
+                                        setTimeout(updateTimer, 1000);
+                                    }}
+                                    
+                                    updateTimer();
+                                </script>
+                                """,
+                                height=30
+                            )
                         else:
                             st.caption("🔄 **Açılıyor...**")
-                            has_active_countdown = True  # Opening now
                     elif bool(pos.is_open):
                         st.caption(f"**AÇIK**")
                     else:
@@ -408,12 +432,6 @@ def show_new_trade_page():
                             setattr(pos, 'closed_at', None)
                             db.commit()
                             st.rerun()
-            
-            # Auto-refresh if there are active countdowns
-            if has_active_countdown:
-                import time
-                time.sleep(1)  # Wait 1 second
-                st.rerun()  # Auto-refresh to update countdown
     finally:
         db.close()
 
