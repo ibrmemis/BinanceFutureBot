@@ -358,6 +358,16 @@ def show_new_trade_page():
             from background_scheduler import get_monitor
             monitor = get_monitor()
             
+            # Check if we have any positions in reopen queue
+            has_queued_positions = monitor and len(monitor.closed_positions_for_reopen) > 0
+            
+            # Auto-refresh every 10 seconds if there are queued positions
+            if has_queued_positions:
+                st.info("⏱️ **Geri sayım aktif!** Sayfa otomatik olarak 10 saniyede bir yenileniyor...")
+                import time
+                time.sleep(10)
+                st.rerun()
+            
             for pos in all_positions:
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
                 
