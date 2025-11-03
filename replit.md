@@ -18,9 +18,11 @@ Preferred communication style: Simple, everyday language.
 - **Key Features**: 
   - Wide layout configuration
   - Real-time position tracking with live OKX API data
+  - **USDT Asset Dashboard**: Active Positions page displays real-time USDT account metrics (equity, available balance, floating PnL, margin used)
   - API key validation with passphrase support
   - Manual order management (create, edit, cancel TP/SL orders)
   - Five main tabs: New Trade, Active Positions, Orders, History, Settings
+  - **OKX Position History Integration**: History tab shows complete trading history synced from OKX API with manual sync button
 - **Rationale**: Streamlit was chosen for its simplicity in creating data-driven dashboards without complex frontend development, making it ideal for rapid prototyping and deployment of trading interfaces
 
 ### Backend Architecture
