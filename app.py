@@ -695,13 +695,43 @@ def show_history_page():
     with tab1:
         st.subheader("OKX Position History (Tüm Kapanmış Pozisyonlar)")
         
+        from datetime import date, timedelta
+        
+        col_filter1, col_filter2 = st.columns(2)
+        
+        with col_filter1:
+            start_date = st.date_input(
+                "Başlangıç Tarihi",
+                value=date.today() - timedelta(days=30),
+                help="Görmek istediğiniz işlemlerin başlangıç tarihi"
+            )
+        
+        with col_filter2:
+            end_date = st.date_input(
+                "Bitiş Tarihi",
+                value=date.today(),
+                help="Görmek istediğiniz işlemlerin bitiş tarihi"
+            )
+        
         db = SessionLocal()
         try:
+            from datetime import datetime as dt_module
+            start_datetime = dt_module.combine(start_date, dt_module.min.time())
+            end_datetime = dt_module.combine(end_date, dt_module.max.time())
+            
             total_count = db.query(PositionHistory).count()
-            st.caption(f"OKX'ten alınan tüm geçmiş pozisyonlar. Database'de toplam {total_count} kayıt bulunuyor. 'OKX'ten Çek' butonuna basarak güncelleyin.")
+            filtered_count = db.query(PositionHistory).filter(
+                PositionHistory.u_time >= start_datetime,
+                PositionHistory.u_time <= end_datetime
+            ).count()
+            
+            st.caption(f"OKX'ten alınan tüm geçmiş pozisyonlar. Database'de toplam {total_count} kayıt (filtrelendi: {filtered_count}). 'OKX'ten Çek' butonuna basarak güncelleyin.")
             st.info("⏰ Saatler UTC (GMT+0) formatındadır. Yerel saat için +3 saat ekleyin.")
             
-            history_records = db.query(PositionHistory).order_by(PositionHistory.u_time.desc()).all()
+            history_records = db.query(PositionHistory).filter(
+                PositionHistory.u_time >= start_datetime,
+                PositionHistory.u_time <= end_datetime
+            ).order_by(PositionHistory.u_time.desc()).all()
             
             if not history_records:
                 st.info("Henüz OKX'ten veri alınmamış. Yukarıdaki '📥 OKX'ten Çek' butonuna tıklayın.")
@@ -822,6 +852,7 @@ def show_orders_page():
     else:
         st.success(f"Toplam {len(algo_orders)} aktif emir")
         
+        table_data = []
         for order in algo_orders:
             inst_id = order.get('instId', 'N/A')
             algo_id = order.get('algoId', 'N/A')
@@ -833,93 +864,102 @@ def show_orders_page():
             state = order.get('state', 'N/A')
             
             trigger_type = "🎯 TP" if side == "sell" and pos_side == "long" else "🎯 TP" if side == "buy" and pos_side == "short" else "🛡️ SL"
+            direction_color = "🟢" if pos_side == "long" else "🔴"
+            state_emoji = "✅" if state == "live" else "⏸️"
             
-            with st.container():
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 1, 1, 1, 1, 1])
+            try:
+                trigger_display = f"${float(trigger_px):.4f}" if trigger_px and trigger_px != '' else "N/A"
+            except (ValueError, TypeError):
+                trigger_display = "N/A"
+            
+            table_data.append({
+                "Coin": inst_id,
+                "Pozisyon": f"{direction_color} {pos_side.upper()}",
+                "Tür": trigger_type,
+                "Trigger Fiyat": trigger_display,
+                "Miktar": size,
+                "Durum": f"{state_emoji} {state}",
+                "Emir ID": algo_id
+            })
+        
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        st.subheader("🛠️ Emir İşlemleri")
+        
+        order_ids = [order.get('algoId', 'N/A') for order in algo_orders]
+        order_map = {order.get('algoId'): order for order in algo_orders}
+        
+        selected_order_id = st.selectbox(
+            "İşlem yapmak istediğiniz emri seçin:",
+            options=order_ids,
+            format_func=lambda x: f"{order_map[x].get('instId', 'N/A')} - {order_map[x].get('algoId', 'N/A')}"
+        )
+        
+        if selected_order_id:
+            selected_order = order_map[selected_order_id]
+            inst_id = selected_order.get('instId', 'N/A')
+            trigger_px = selected_order.get('triggerPx', '0')
+            size = selected_order.get('sz', '0')
+            
+            col_action1, col_action2 = st.columns(2)
+            
+            with col_action1:
+                st.write("**🗑️ Emri İptal Et**")
+                if st.button("🗑️ İptal Et", key=f"cancel_{selected_order_id}", use_container_width=True):
+                    with st.spinner("İptal ediliyor..."):
+                        symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
+                        success = client.cancel_algo_order(symbol_base, selected_order_id)
+                        if success:
+                            st.success("✅ Emir iptal edildi!")
+                            st.rerun()
+                        else:
+                            st.error("❌ İptal edilemedi")
+            
+            with col_action2:
+                st.write("**✏️ Emri Düzenle**")
+                try:
+                    trigger_value = float(trigger_px) if trigger_px and trigger_px != '' else 1.0
+                except (ValueError, TypeError):
+                    trigger_value = 1.0
                 
-                with col1:
-                    st.metric("Coin", inst_id)
+                new_trigger_px = st.number_input(
+                    "Yeni Trigger Fiyat",
+                    min_value=0.0001,
+                    value=trigger_value,
+                    step=0.0001,
+                    key=f"edit_trigger_{selected_order_id}"
+                )
                 
-                with col2:
-                    direction_color = "🟢" if pos_side == "long" else "🔴"
-                    st.metric("Pozisyon", f"{direction_color} {pos_side.upper()}")
+                try:
+                    size_value = max(0.01, float(size)) if size and size != '' else 0.01
+                except (ValueError, TypeError):
+                    size_value = 0.01
                 
-                with col3:
-                    st.metric("Tür", trigger_type)
+                new_size = st.number_input(
+                    "Yeni Miktar",
+                    min_value=0.01,
+                    value=size_value,
+                    step=0.01,
+                    format="%.2f",
+                    key=f"edit_size_{selected_order_id}"
+                )
                 
-                with col4:
-                    try:
-                        trigger_display = f"${float(trigger_px):.4f}" if trigger_px and trigger_px != '' else "N/A"
-                    except (ValueError, TypeError):
-                        trigger_display = "N/A"
-                    st.metric("Trigger Fiyat", trigger_display)
-                
-                with col5:
-                    st.metric("Miktar", size)
-                
-                with col6:
-                    state_emoji = "✅" if state == "live" else "⏸️"
-                    st.metric("Durum", f"{state_emoji} {state}")
-                
-                col1, col2, col3 = st.columns([2, 1, 1])
-                
-                with col1:
-                    st.caption(f"Emir ID: {algo_id}")
-                
-                with col2:
-                    if st.button(f"🗑️ İptal", key=f"cancel_{algo_id}"):
-                        with st.spinner("İptal ediliyor..."):
-                            symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
-                            success = client.cancel_algo_order(symbol_base, algo_id)
-                            if success:
-                                st.success("✅ Emir iptal edildi!")
-                                st.rerun()
-                            else:
-                                st.error("❌ İptal edilemedi")
-                
-                with col3:
-                    with st.popover("✏️ Düzenle"):
-                        st.caption("Trigger fiyatını değiştir")
-                        try:
-                            trigger_value = float(trigger_px) if trigger_px and trigger_px != '' else 1.0
-                        except (ValueError, TypeError):
-                            trigger_value = 1.0
-                        
-                        new_trigger_px = st.number_input(
-                            "Yeni Trigger Fiyat",
-                            min_value=0.0001,
-                            value=trigger_value,
-                            step=0.0001,
-                            key=f"edit_trigger_{algo_id}"
+                if st.button("💾 Kaydet", key=f"save_{selected_order_id}", use_container_width=True):
+                    with st.spinner("Güncelleniyor..."):
+                        symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
+                        success = client.amend_algo_order(
+                            symbol_base,
+                            selected_order_id,
+                            new_trigger_px,
+                            new_size
                         )
-                        
-                        try:
-                            size_value = max(0.01, float(size)) if size and size != '' else 0.01
-                        except (ValueError, TypeError):
-                            size_value = 0.01
-                        
-                        new_size = st.number_input(
-                            "Yeni Miktar",
-                            min_value=0.01,
-                            value=size_value,
-                            step=0.01,
-                            format="%.2f",
-                            key=f"edit_size_{algo_id}"
-                        )
-                        if st.button("💾 Kaydet", key=f"save_{algo_id}"):
-                            with st.spinner("Güncelleniyor..."):
-                                symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
-                                success = client.amend_algo_order(
-                                    symbol_base,
-                                    algo_id,
-                                    new_trigger_px,
-                                    new_size
-                                )
-                                if success:
-                                    st.success("✅ Emir güncellendi!")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Güncellenemedi")
+                        if success:
+                            st.success("✅ Emir güncellendi!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Güncellenemedi")
                 
                 st.divider()
     
