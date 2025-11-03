@@ -41,17 +41,18 @@ Preferred communication style: Simple, everyday language.
 - **ORM**: SQLAlchemy
 - **Key Tables**:
   - `api_credentials`: Stores encrypted OKX API keys, secrets, and passphrases
-  - `positions`: Tracks **ONLY manually created positions** (auto-reopened positions exist only on OKX)
+  - `positions`: Tracks **ALL positions** (manual and auto-reopened)
     - **Position ID Tracking**: Each position stores OKX's unique `posId` field in the `position_id` column
     - **Position Identification**: Positions are tracked by their unique OKX `posId`, not by order/trade IDs
     - **Open/Closed Status**: Position status is determined by checking if the `posId` exists in OKX and has non-zero position amount
-    - **Auto-Reopen Prevention**: When a position is successfully auto-reopened, its `closed_at` timestamp is backdated by 15 minutes to prevent duplicate reopening
+    - **Position Chains**: Each reopened position links to its parent via `parent_position_id`, creating audit trail (A→B→C→D...)
+    - **Infinite Reopen**: Every closed position creates a new database record when reopened (no update, always INSERT)
 
 - **Database vs OKX**:
-  - **New Trade Page**: Shows positions from database (manual positions only)
-  - **Active Positions Page**: Shows ALL positions from OKX in real-time (both manual and auto-reopened)
-  - **Auto-reopened positions**: Exist only on OKX, NOT saved to database
-  - **Manual positions**: Saved to database with all details for tracking and history
+  - **New Trade Page**: Shows positions from database (all positions)
+  - **Active Positions Page**: Shows ALL positions from OKX in real-time
+  - **Auto-reopened positions**: Saved to database as NEW records with `parent_position_id` linkage
+  - **Manual positions**: Saved to database as root records with `parent_position_id = NULL`
 
 - **Security**: API credentials are encrypted using Fernet (symmetric encryption) with a key derived from SESSION_SECRET environment variable
 - **Rationale**: 
@@ -79,16 +80,19 @@ Preferred communication style: Simple, everyday language.
 - **Key Features**:
   - Periodic position checks and updates every 1 minute
   - Tracking of recently closed positions (10-minute window)
-  - Automatic reopening logic for closed positions after 5 minutes with identical parameters
-  - **Auto-Reopen Limit**: Each position can be auto-reopened MAXIMUM 1 TIME to prevent infinite loops
+  - **UNLIMITED automatic reopening**: Closed positions reopen infinitely after configurable delay (default 5 min)
+  - **Configurable Auto-Reopen Delay**: User can set 1-60 minutes delay via Settings page
+  - **Retry on Failure**: Failed reopen attempts stay in queue and retry every 30 seconds until success
   - Start/Stop controls via Settings page or sidebar
   - `manually_stopped` flag persists stop state across function calls
-- **Auto-Reopen Safety Mechanism**:
-  - Only positions with `reopen_count == 0` (never auto-reopened before) are eligible for auto-reopen
-  - After first auto-reopen, `reopen_count` increments to 1, blocking further auto-reopens
-  - Prevents infinite reopen loops where positions repeatedly close and reopen indefinitely
-  - Fixed critical bug (Nov 2025): Infinite loop caused positions to accumulate on OKX (e.g., 1111 USDT position grew to 10,281 USDT after 9 auto-reopens)
-- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts. One-time auto-reopen limit ensures stability and prevents runaway position growth.
+- **Infinite Auto-Reopen Mechanism** (Updated Nov 2025):
+  - **NO LIMIT**: Positions reopen infinitely - each closure triggers a new reopen after configured delay
+  - **New Record Per Reopen**: Each reopened position creates NEW database record (never updates existing)
+  - **Parent Linkage**: `parent_position_id` creates chain: Manual Pos (ID:1) → Reopen (ID:2, parent:1) → Reopen (ID:3, parent:2)...
+  - **Unique Tracking**: Each position has unique database ID and OKX `posId`, no conflicts
+  - **Retry Logic**: API/network failures keep position in reopen queue, retry every 30 sec until success
+  - **User Requested**: Explicitly requested unlimited reopen without safety limits
+- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts. Infinite reopen enables continuous trading without manual intervention.
 
 ## External Dependencies
 
