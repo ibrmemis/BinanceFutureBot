@@ -75,11 +75,14 @@ Preferred communication style: Simple, everyday language.
 - **Technology**: APScheduler (BackgroundScheduler)
 - **Purpose**: Continuously monitor open positions and handle automatic position reopening
 - **Implementation**: Singleton pattern via `get_monitor()` function ensures single scheduler instance
+- **Manual Start Required**: Bot does NOT auto-start on program restart - user must click "▶️ Botu Başlat" button
 - **Key Features**:
   - Periodic position checks and updates every 1 minute
   - Tracking of recently closed positions (10-minute window)
   - Automatic reopening logic for closed positions after 5 minutes with identical parameters
-- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive
+  - Start/Stop controls via Settings page or sidebar
+  - `manually_stopped` flag persists stop state across function calls
+- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts.
 
 ## External Dependencies
 
