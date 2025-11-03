@@ -100,7 +100,7 @@ class PositionMonitor:
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
                     if current_time >= closed_time + timedelta(minutes=5):
                         pos = db.query(Position).filter(Position.id == pos_id).first()
-                        if pos and not pos.is_open:
+                        if pos and not pos.is_open and pos.reopen_count == 0:
                             positions_to_reopen.append(pos)
                         del self.closed_positions_for_reopen[pos_id]
                 
@@ -186,7 +186,7 @@ class PositionMonitor:
                     pos.reopen_count += 1
                     
                     db.commit()
-                    print(f"Pozisyon yeniden açıldı ve database güncellendi: {pos.symbol} {pos.side} (Entry: ${new_entry_price:.2f}, Qty: {new_quantity})")
+                    print(f"✅ Pozisyon yeniden açıldı (1. ve SON kez): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | UYARI: Bu pozisyon artık tekrar otomatik açılmayacak!")
                         
             finally:
                 db.close()

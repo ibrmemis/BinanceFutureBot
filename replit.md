@@ -80,9 +80,15 @@ Preferred communication style: Simple, everyday language.
   - Periodic position checks and updates every 1 minute
   - Tracking of recently closed positions (10-minute window)
   - Automatic reopening logic for closed positions after 5 minutes with identical parameters
+  - **Auto-Reopen Limit**: Each position can be auto-reopened MAXIMUM 1 TIME to prevent infinite loops
   - Start/Stop controls via Settings page or sidebar
   - `manually_stopped` flag persists stop state across function calls
-- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts.
+- **Auto-Reopen Safety Mechanism**:
+  - Only positions with `reopen_count == 0` (never auto-reopened before) are eligible for auto-reopen
+  - After first auto-reopen, `reopen_count` increments to 1, blocking further auto-reopens
+  - Prevents infinite reopen loops where positions repeatedly close and reopen indefinitely
+  - Fixed critical bug (Nov 2025): Infinite loop caused positions to accumulate on OKX (e.g., 1111 USDT position grew to 10,281 USDT after 9 auto-reopens)
+- **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts. One-time auto-reopen limit ensures stability and prevents runaway position growth.
 
 ## External Dependencies
 
