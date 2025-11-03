@@ -562,6 +562,48 @@ def show_active_positions_page():
         st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
         return
     
+    usdt_balance = client.get_account_balance("USDT")
+    
+    if usdt_balance:
+        st.subheader("💰 USDT Asset Bilgisi")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Equity (Toplam Bakiye)", 
+                f"${usdt_balance['equity']:.2f}",
+                help="Toplam USDT bakiyeniz (kullanılan + kullanılabilir)"
+            )
+        
+        with col2:
+            st.metric(
+                "Kullanılabilir", 
+                f"${usdt_balance['available']:.2f}",
+                help="Yeni pozisyon açmak için kullanılabilir USDT"
+            )
+        
+        with col3:
+            pnl_color = "normal" if usdt_balance['unrealized_pnl'] >= 0 else "inverse"
+            st.metric(
+                "Floating PnL", 
+                f"${usdt_balance['unrealized_pnl']:.2f}",
+                delta_color=pnl_color,
+                help="Açık pozisyonlarınızın toplam gerçekleşmemiş kar/zarar"
+            )
+        
+        with col4:
+            st.metric(
+                "Kullanımda (Margin)", 
+                f"${usdt_balance['margin_used']:.2f}",
+                help="Açık pozisyonlar için kullanılan margin"
+            )
+        
+        st.divider()
+    else:
+        st.warning("⚠️ USDT bakiye bilgisi alınamadı. OKX API bağlantısını kontrol edin.")
+        st.divider()
+    
     okx_positions = client.get_all_positions()
     
     if not okx_positions:

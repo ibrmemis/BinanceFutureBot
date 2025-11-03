@@ -113,6 +113,30 @@ class OKXTestnetClient:
             print(f"Error setting leverage: {e}")
             return False
     
+    def get_account_balance(self, currency: str = "USDT") -> Optional[Dict]:
+        """Get account balance for a specific currency (default USDT)"""
+        if not self.account_api:
+            return None
+        try:
+            result = self.account_api.get_account_balance(ccy=currency)
+            if result.get('code') == '0' and result.get('data'):
+                data = result['data'][0]
+                details = data.get('details', [])
+                
+                for detail in details:
+                    if detail.get('ccy') == currency:
+                        return {
+                            'equity': float(detail.get('eq', 0)),
+                            'available': float(detail.get('availEq', 0)),
+                            'frozen': float(detail.get('frozenBal', 0)),
+                            'unrealized_pnl': float(detail.get('upl', 0)),
+                            'margin_used': float(detail.get('eq', 0)) - float(detail.get('availEq', 0))
+                        }
+            return None
+        except Exception as e:
+            print(f"Error getting account balance: {e}")
+            return None
+    
     def get_contract_value(self, symbol: str) -> float:
         """Get contract value (ctVal) for a symbol from OKX API"""
         if not self.public_api:
@@ -152,18 +176,6 @@ class OKXTestnetClient:
             return None
         except Exception as e:
             print(f"Error getting price: {e}")
-            return None
-    
-    def get_account_balance(self) -> Optional[Dict]:
-        if not self.account_api:
-            return None
-        try:
-            result = self.account_api.get_account_balance()
-            if result.get('code') == '0':
-                return result
-            return None
-        except Exception as e:
-            print(f"Error getting balance: {e}")
             return None
     
     def place_market_order(self, symbol: str, side: str, quantity: float, position_side: str = "long") -> Optional[Dict]:
