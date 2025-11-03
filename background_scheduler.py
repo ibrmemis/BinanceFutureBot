@@ -96,105 +96,122 @@ class PositionMonitor:
             db = SessionLocal()
             try:
                 positions_to_reopen = []
+                positions_to_remove = []
                 current_time = datetime.utcnow()
                 
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
                     if current_time >= closed_time + timedelta(minutes=self.auto_reopen_delay_minutes):
                         pos = db.query(Position).filter(Position.id == pos_id).first()
                         if pos and not pos.is_open:
-                            positions_to_reopen.append(pos)
-                        del self.closed_positions_for_reopen[pos_id]
+                            positions_to_reopen.append((pos_id, pos))
+                        else:
+                            # Pozisyon bulunamadı veya zaten açık - queue'dan çıkar
+                            positions_to_remove.append(pos_id)
                 
-                for pos in positions_to_reopen:
-                    # Yeni pozisyon bilgilerini al
-                    position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
-                    
-                    # Kontrat miktarını hesapla
-                    current_price = self.strategy.client.get_symbol_price(pos.symbol)
-                    if not current_price:
-                        print(f"Fiyat alınamadı: {pos.symbol}")
-                        continue
-                    
-                    quantity = self.strategy.calculate_quantity_for_usdt(
-                        amount_usdt=pos.amount_usdt,
-                        leverage=pos.leverage,
-                        current_price=current_price,
-                        symbol=pos.symbol
-                    )
-                    
-                    # Market order ile pozisyon aç
-                    order_result = self.strategy.client.place_market_order(
-                        symbol=pos.symbol,
-                        side=pos.side,
-                        quantity=quantity,
-                        position_side=position_side
-                    )
-                    
-                    if not order_result:
-                        print(f"Pozisyon yeniden açılamadı: {pos.symbol} {pos.side}")
-                        continue
-                    
-                    import time
-                    time.sleep(2)
-                    
-                    # Yeni pozisyon bilgilerini OKX'ten al
-                    okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
-                    
-                    if not okx_pos:
-                        print(f"Pozisyon bilgisi alınamadı: {pos.symbol} {pos.side}")
-                        continue
-                    
-                    new_entry_price = float(okx_pos.get('entryPrice', 0))
-                    new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
-                    new_pos_id = okx_pos.get('posId')
-                    
-                    if new_quantity == 0 or not new_pos_id:
-                        print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
-                        continue
-                    
-                    # TP/SL fiyatlarını hesapla
-                    tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
-                        entry_price=new_entry_price,
-                        side=pos.side,
-                        tp_usdt=pos.tp_usdt,
-                        sl_usdt=pos.sl_usdt,
-                        quantity=new_quantity,
-                        symbol=pos.symbol
-                    )
-                    
-                    # TP/SL emirlerini yerleştir
-                    tp_order_id, sl_order_id = self.strategy.client.place_tp_sl_orders(
-                        symbol=pos.symbol,
-                        side=pos.side,
-                        quantity=new_quantity,
-                        entry_price=new_entry_price,
-                        tp_price=tp_price,
-                        sl_price=sl_price,
-                        position_side=position_side
-                    )
-                    
-                    # YENİ pozisyon kaydı oluştur (parent_position_id ile eski pozisyona bağla)
-                    new_position = Position(
-                        symbol=pos.symbol,
-                        side=pos.side,
-                        amount_usdt=pos.amount_usdt,
-                        leverage=pos.leverage,
-                        tp_usdt=pos.tp_usdt,
-                        sl_usdt=pos.sl_usdt,
-                        entry_price=new_entry_price,
-                        quantity=new_quantity,
-                        position_id=new_pos_id,
-                        position_side=position_side,
-                        tp_order_id=tp_order_id,
-                        sl_order_id=sl_order_id,
-                        is_open=True,
-                        opened_at=datetime.utcnow(),
-                        parent_position_id=pos.id
-                    )
-                    
-                    db.add(new_position)
-                    db.commit()
-                    print(f"✅ Pozisyon yeniden açıldı: {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | Parent ID: {pos.id} → New ID: {new_position.id}")
+                for pos_id, pos in positions_to_reopen:
+                    try:
+                        # Yeni pozisyon bilgilerini al
+                        position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                        
+                        # Kontrat miktarını hesapla
+                        current_price = self.strategy.client.get_symbol_price(pos.symbol)
+                        if not current_price:
+                            print(f"Fiyat alınamadı: {pos.symbol}")
+                            continue
+                        
+                        quantity = self.strategy.calculate_quantity_for_usdt(
+                            amount_usdt=pos.amount_usdt,
+                            leverage=pos.leverage,
+                            current_price=current_price,
+                            symbol=pos.symbol
+                        )
+                        
+                        # Market order ile pozisyon aç
+                        order_result = self.strategy.client.place_market_order(
+                            symbol=pos.symbol,
+                            side=pos.side,
+                            quantity=quantity,
+                            position_side=position_side
+                        )
+                        
+                        if not order_result:
+                            print(f"Pozisyon yeniden açılamadı: {pos.symbol} {pos.side}")
+                            continue
+                        
+                        import time
+                        time.sleep(2)
+                        
+                        # Yeni pozisyon bilgilerini OKX'ten al
+                        okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
+                        
+                        if not okx_pos:
+                            print(f"Pozisyon bilgisi alınamadı: {pos.symbol} {pos.side}")
+                            continue
+                        
+                        new_entry_price = float(okx_pos.get('entryPrice', 0))
+                        new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
+                        new_pos_id = okx_pos.get('posId')
+                        
+                        if new_quantity == 0 or not new_pos_id:
+                            print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
+                            continue
+                        
+                        # TP/SL fiyatlarını hesapla
+                        tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
+                            entry_price=new_entry_price,
+                            side=pos.side,
+                            tp_usdt=pos.tp_usdt,
+                            sl_usdt=pos.sl_usdt,
+                            quantity=new_quantity,
+                            symbol=pos.symbol
+                        )
+                        
+                        # TP/SL emirlerini yerleştir
+                        tp_order_id, sl_order_id = self.strategy.client.place_tp_sl_orders(
+                            symbol=pos.symbol,
+                            side=pos.side,
+                            quantity=new_quantity,
+                            entry_price=new_entry_price,
+                            tp_price=tp_price,
+                            sl_price=sl_price,
+                            position_side=position_side
+                        )
+                        
+                        # YENİ pozisyon kaydı oluştur (parent_position_id ile eski pozisyona bağla)
+                        new_position = Position(
+                            symbol=pos.symbol,
+                            side=pos.side,
+                            amount_usdt=pos.amount_usdt,
+                            leverage=pos.leverage,
+                            tp_usdt=pos.tp_usdt,
+                            sl_usdt=pos.sl_usdt,
+                            entry_price=new_entry_price,
+                            quantity=new_quantity,
+                            position_id=new_pos_id,
+                            position_side=position_side,
+                            tp_order_id=tp_order_id,
+                            sl_order_id=sl_order_id,
+                            is_open=True,
+                            opened_at=datetime.utcnow(),
+                            parent_position_id=pos.id
+                        )
+                        
+                        db.add(new_position)
+                        db.commit()
+                        
+                        # Başarılı reopen - queue'dan çıkar
+                        positions_to_remove.append(pos_id)
+                        print(f"✅ Pozisyon yeniden açıldı: {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | Parent ID: {pos.id} → New ID: {new_position.id}")
+                        
+                    except Exception as e:
+                        db.rollback()  # Session'ı temizle
+                        print(f"⚠️ Pozisyon yeniden açılamadı (tekrar denenecek): {pos.symbol} {pos.side} | Hata: {e}")
+                        # Queue'da bırak, bir sonraki check'te tekrar denesin
+                
+                # Başarılı ve geçersiz pozisyonları queue'dan temizle
+                for pos_id in positions_to_remove:
+                    if pos_id in self.closed_positions_for_reopen:
+                        del self.closed_positions_for_reopen[pos_id]
                         
             finally:
                 db.close()
