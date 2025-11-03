@@ -96,7 +96,7 @@ class PositionHistory(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     inst_id = Column(String, nullable=False)
-    pos_id = Column(String, nullable=False, unique=True, index=True)
+    pos_id = Column(String, nullable=False, index=True)
     mgn_mode = Column(String)
     pos_side = Column(String)
     open_avg_px = Column(Float)
@@ -107,7 +107,7 @@ class PositionHistory(Base):
     pnl_ratio = Column(Float)
     leverage = Column(Integer)
     close_type = Column(String)
-    c_time = Column(DateTime)
+    c_time = Column(DateTime, index=True)
     u_time = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     

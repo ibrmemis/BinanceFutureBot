@@ -29,9 +29,13 @@ def sync_okx_position_history():
                 if not pos_id:
                     continue
                 
-                # Check if already exists
+                # Check if already exists (using pos_id + c_time for uniqueness)
+                c_time_ms = int(pos.get('cTime', 0))
+                c_time_dt = datetime.fromtimestamp(c_time_ms / 1000) if c_time_ms else None
+                
                 existing = db.query(PositionHistory).filter(
-                    PositionHistory.pos_id == pos_id
+                    PositionHistory.pos_id == pos_id,
+                    PositionHistory.c_time == c_time_dt
                 ).first()
                 
                 if existing:
@@ -45,17 +49,14 @@ def sync_okx_position_history():
                     existing.close_total_pos = float(pos.get('closeTotalPos', 0))
                     existing.pnl = float(pos.get('pnl', 0))
                     existing.pnl_ratio = float(pos.get('pnlRatio', 0))
-                    existing.leverage = int(pos.get('lever', 1))
+                    existing.leverage = int(float(pos.get('lever', 1)))
                     existing.close_type = pos.get('type', '')
                     
                     # Convert timestamps (OKX uses milliseconds)
-                    c_time_ms = int(pos.get('cTime', 0))
                     u_time_ms = int(pos.get('uTime', 0))
-                    existing.c_time = datetime.fromtimestamp(c_time_ms / 1000) if c_time_ms else None
                     existing.u_time = datetime.fromtimestamp(u_time_ms / 1000) if u_time_ms else None
                 else:
                     # Create new record
-                    c_time_ms = int(pos.get('cTime', 0))
                     u_time_ms = int(pos.get('uTime', 0))
                     
                     new_history = PositionHistory(
@@ -69,9 +70,9 @@ def sync_okx_position_history():
                         close_total_pos=float(pos.get('closeTotalPos', 0)),
                         pnl=float(pos.get('pnl', 0)),
                         pnl_ratio=float(pos.get('pnlRatio', 0)),
-                        leverage=int(pos.get('lever', 1)),
+                        leverage=int(float(pos.get('lever', 1))),
                         close_type=pos.get('type', ''),
-                        c_time=datetime.fromtimestamp(c_time_ms / 1000) if c_time_ms else None,
+                        c_time=c_time_dt,
                         u_time=datetime.fromtimestamp(u_time_ms / 1000) if u_time_ms else None
                     )
                     db.add(new_history)
