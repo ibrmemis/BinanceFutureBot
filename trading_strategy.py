@@ -219,9 +219,11 @@ class Try1Strategy:
             grace_period_cutoff = datetime.utcnow() - timedelta(seconds=120)
             
             # Only check positions older than 120 seconds (grace period for new positions - OKX needs time to update)
+            # AND only positions that have a position_id (meaning they were actually opened on OKX)
             open_positions = db.query(Position).filter(
                 Position.is_open == True,
-                Position.opened_at < grace_period_cutoff
+                Position.opened_at < grace_period_cutoff,
+                Position.position_id != None
             ).all()
             
             for pos in open_positions:
