@@ -29,18 +29,32 @@ class PositionMonitor:
             
             db = SessionLocal()
             try:
-                # Find positions marked as closed (is_open = FALSE)
-                # These were manually closed by user via UI
+                # Find positions that need to be opened on OKX:
+                # 1. Marked as OPEN (is_open = TRUE) but not yet opened on OKX (position_id = NULL)
+                # 2. Marked as CLOSED (is_open = FALSE) for auto-reopen
+                
+                # Case 1: OPEN positions without position_id (not yet opened on OKX)
+                pending_open = db.query(Position).filter(
+                    Position.is_open == True,
+                    Position.position_id == None
+                ).all()
+                
+                for pos in pending_open:
+                    if pos.id not in self.closed_positions_for_reopen:
+                        # Use opened_at as the "close time" for countdown
+                        self.closed_positions_for_reopen[pos.id] = pos.opened_at or datetime.utcnow()
+                        print(f"Pozisyon auto-open queue'ya eklendi: {pos.symbol} {pos.side} (henüz OKX'te değil)")
+                
+                # Case 2: CLOSED positions (manually closed by user via UI)
                 recently_closed = db.query(Position).filter(
                     Position.is_open == False,
                     Position.closed_at >= datetime.utcnow() - timedelta(minutes=10)
                 ).all()
                 
                 for pos in recently_closed:
-                    # Add to reopen queue only if not already there
                     if pos.id not in self.closed_positions_for_reopen:
                         self.closed_positions_for_reopen[pos.id] = pos.closed_at
-                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side}")
+                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side} (manuel kapatıldı)")
                 
             finally:
                 db.close()
