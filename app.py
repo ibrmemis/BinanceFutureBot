@@ -611,55 +611,84 @@ def show_active_positions_page():
     else:
         st.success(f"Toplam {len(okx_positions)} aktif pozisyon (OKX'ten)")
         
-        for okx_pos in okx_positions:
-            inst_id = okx_pos.get('instId', '')
-            symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '')
-            position_side_raw = okx_pos.get('posSide', 'long')
-            side = "LONG" if position_side_raw == "long" else "SHORT"
-            
-            entry_price = float(okx_pos.get('entryPrice', 0))
-            unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
-            leverage = okx_pos.get('leverage', '1')
-            position_amt = abs(float(okx_pos.get('positionAmt', 0)))
-            pos_id = okx_pos.get('posId', 'N/A')
-            
-            current_price = client.get_symbol_price(symbol)
-            
-            with st.container():
-                col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+        db = SessionLocal()
+        try:
+            for okx_pos in okx_positions:
+                inst_id = okx_pos.get('instId', '')
+                symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '')
+                position_side_raw = okx_pos.get('posSide', 'long')
+                side = "LONG" if position_side_raw == "long" else "SHORT"
                 
-                with col1:
-                    st.metric("Coin", symbol)
+                entry_price = float(okx_pos.get('entryPrice', 0))
+                unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                leverage = okx_pos.get('leverage', '1')
+                position_amt = abs(float(okx_pos.get('positionAmt', 0)))
+                pos_id = okx_pos.get('posId', 'N/A')
                 
-                with col2:
-                    direction_color = "🟢" if side == "LONG" else "🔴"
-                    st.metric("Yön", f"{direction_color} {side}")
-                
-                with col3:
-                    st.metric("Kaldıraç", f"{leverage}x")
-                
-                with col4:
-                    st.metric("Kontrat", f"{int(position_amt)}")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.caption(f"Giriş: ${entry_price:.4f}")
-                
-                with col2:
-                    if current_price:
-                        st.caption(f"Şu an: ${current_price:.4f}")
+                tp_price = None
+                sl_price = None
+                db_position = db.query(Position).filter(Position.position_id == pos_id).first()
+                if db_position and position_amt > 0 and db_position.tp_usdt and db_position.sl_usdt:
+                    if side == "LONG":
+                        tp_price = entry_price + (db_position.tp_usdt / position_amt)
+                        sl_price = entry_price - (db_position.sl_usdt / position_amt)
                     else:
-                        st.caption("Fiyat: N/A")
+                        tp_price = entry_price - (db_position.tp_usdt / position_amt)
+                        sl_price = entry_price + (db_position.sl_usdt / position_amt)
                 
-                with col3:
-                    pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
-                    st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
+                current_price = client.get_symbol_price(symbol)
                 
-                with col4:
-                    st.caption(f"PosID: {pos_id}")
-                
-                st.divider()
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+                    
+                    with col1:
+                        st.metric("Coin", symbol)
+                    
+                    with col2:
+                        direction_color = "🟢" if side == "LONG" else "🔴"
+                        st.metric("Yön", f"{direction_color} {side}")
+                    
+                    with col3:
+                        st.metric("Kaldıraç", f"{leverage}x")
+                    
+                    with col4:
+                        st.metric("Kontrat", f"{int(position_amt)}")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.caption(f"Giriş: ${entry_price:.4f}")
+                    
+                    with col2:
+                        if current_price:
+                            st.caption(f"Şu an: ${current_price:.4f}")
+                        else:
+                            st.caption("Fiyat: N/A")
+                    
+                    with col3:
+                        pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
+                        st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
+                    
+                    with col4:
+                        st.caption(f"PosID: {pos_id}")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if tp_price:
+                            st.caption(f"🎯 TP Hedef: ${tp_price:.4f}")
+                        else:
+                            st.caption("🎯 TP Hedef: N/A")
+                    
+                    with col2:
+                        if sl_price:
+                            st.caption(f"🛑 SL Hedef: ${sl_price:.4f}")
+                        else:
+                            st.caption("🛑 SL Hedef: N/A")
+                    
+                    st.divider()
+        finally:
+            db.close()
     
 
 def show_history_page():
