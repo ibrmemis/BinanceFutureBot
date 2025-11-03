@@ -324,8 +324,6 @@ def show_new_trade_page():
                     "Kaldıraç": f"{db_leverage}x",
                     "Kontrat": f"{db_quantity:.2f}",
                     "Değer": f"${db_amount:.2f}",
-                    "Giriş": f"${db_entry_price:.4f}",
-                    "Şu an": current_price_display,
                     "PnL": pnl_display,
                     "TP": f"${db_tp:.2f}",
                     "SL": f"${db_sl:.2f}",
@@ -345,8 +343,6 @@ def show_new_trade_page():
                     "Kaldıraç": st.column_config.TextColumn("Kaldıraç", width="small"),
                     "Kontrat": st.column_config.TextColumn("Kontrat", width="small"),
                     "Değer": st.column_config.TextColumn("Değer (USDT)", width="small"),
-                    "Giriş": st.column_config.TextColumn("Giriş", width="medium"),
-                    "Şu an": st.column_config.TextColumn("Şu an", width="medium"),
                     "PnL": st.column_config.TextColumn("PnL", width="small"),
                     "TP": st.column_config.TextColumn("TP (USDT)", width="small"),
                     "SL": st.column_config.TextColumn("SL (USDT)", width="small"),
@@ -357,6 +353,10 @@ def show_new_trade_page():
             st.divider()
             st.subheader("🔧 Pozisyon Kontrolü - Aç/Kapat")
             st.caption("Her pozisyonun durumunu değiştirerek bot'un auto-reopen davranışını kontrol edin")
+            
+            # Get monitor instance to check auto-reopen countdown
+            from background_scheduler import get_monitor
+            monitor = get_monitor()
             
             for pos in all_positions:
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
@@ -372,8 +372,25 @@ def show_new_trade_page():
                     st.caption(f"TP: {tp_str} | SL: {sl_str}")
                 
                 with col3:
-                    status_text = "AÇIK" if bool(pos.is_open) else "KAPALI"
-                    st.caption(f"**{status_text}**")
+                    if bool(pos.is_open):
+                        status_text = "AÇIK"
+                        st.caption(f"**{status_text}**")
+                    else:
+                        # Show countdown for closed positions in reopen queue
+                        if monitor and pos.id in monitor.closed_positions_for_reopen:
+                            from datetime import timedelta
+                            closed_time = monitor.closed_positions_for_reopen[pos.id]
+                            reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
+                            remaining = reopen_time - datetime.utcnow()
+                            
+                            if remaining.total_seconds() > 0:
+                                minutes = int(remaining.total_seconds() // 60)
+                                seconds = int(remaining.total_seconds() % 60)
+                                st.caption(f"⏱️ **{minutes:02d}:{seconds:02d}**")
+                            else:
+                                st.caption("🔄 **Açılıyor...**")
+                        else:
+                            st.caption(f"**KAPALI**")
                 
                 with col4:
                     if bool(pos.is_open):
