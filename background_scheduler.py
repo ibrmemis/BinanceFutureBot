@@ -33,17 +33,16 @@ class PositionMonitor:
                 # 1. Marked as OPEN (is_open = TRUE) but not yet opened on OKX (position_id = NULL)
                 # 2. Marked as CLOSED (is_open = FALSE) for auto-reopen
                 
-                # Case 1: OPEN positions without position_id (not yet opened on OKX)
-                pending_open = db.query(Position).filter(
-                    Position.is_open == True,
-                    Position.position_id == None
+                # Case 1: ALL OPEN positions (user wants all open positions to be queued on bot start)
+                all_open = db.query(Position).filter(
+                    Position.is_open == True
                 ).all()
                 
-                for pos in pending_open:
+                for pos in all_open:
                     if pos.id not in self.closed_positions_for_reopen:
                         # Use opened_at as the "close time" for countdown
                         self.closed_positions_for_reopen[pos.id] = pos.opened_at or datetime.utcnow()
-                        print(f"Pozisyon auto-open queue'ya eklendi: {pos.symbol} {pos.side} (henüz OKX'te değil)")
+                        print(f"Pozisyon auto-open queue'ya eklendi: {pos.symbol} {pos.side}")
                 
                 # Case 2: CLOSED positions (manually closed by user via UI)
                 recently_closed = db.query(Position).filter(
