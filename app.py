@@ -623,59 +623,130 @@ def show_active_positions_page():
 def show_history_page():
     st.header("📈 Geçmiş İşlemler")
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     
     with col2:
-        if st.button("🔄 Yenile ", width="stretch"):
+        if st.button("🔄 Yenile ", use_container_width=True):
             st.rerun()
     
-    db = SessionLocal()
-    try:
-        closed_positions = db.query(Position).filter(Position.is_open == False).order_by(Position.closed_at.desc()).limit(50).all()
+    with col3:
+        if st.button("📥 OKX'ten Çek", use_container_width=True):
+            with st.spinner("OKX'ten position history alınıyor..."):
+                from sync_okx_history import sync_okx_position_history
+                count, error = sync_okx_position_history()
+                if error:
+                    st.error(f"❌ Hata: {error}")
+                else:
+                    st.success(f"✅ {count} pozisyon OKX'ten alındı!")
+                    st.rerun()
+    
+    from database import PositionHistory
+    
+    tab1, tab2 = st.tabs(["📊 OKX Position History", "📋 Manuel Pozisyonlar (Database)"])
+    
+    with tab1:
+        st.subheader("OKX Position History (Tüm Kapanmış Pozisyonlar)")
+        st.caption("OKX'ten alınan tüm geçmiş pozisyonlar. 'OKX'ten Çek' butonuna basarak güncelleyin.")
         
-        if not closed_positions:
-            st.info("Henüz kapanmış pozisyon bulunmuyor.")
-        else:
-            total_pnl = sum([(cast(float, pos.pnl) if pos.pnl is not None else 0.0) for pos in closed_positions])
-            winning_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) > 0])
-            losing_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) < 0])
+        db = SessionLocal()
+        try:
+            history_records = db.query(PositionHistory).order_by(PositionHistory.c_time.desc()).limit(100).all()
             
-            col1, col2, col3, col4 = st.columns(4)
+            if not history_records:
+                st.info("Henüz OKX'ten veri alınmamış. Yukarıdaki '📥 OKX'ten Çek' butonuna tıklayın.")
+            else:
+                total_pnl = sum([rec.pnl for rec in history_records if rec.pnl])
+                winning_trades = len([rec for rec in history_records if rec.pnl and rec.pnl > 0])
+                losing_trades = len([rec for rec in history_records if rec.pnl and rec.pnl < 0])
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Toplam İşlem", len(history_records))
+                
+                with col2:
+                    st.metric("Kazanan", winning_trades, delta=f"%{(winning_trades/len(history_records)*100):.1f}" if history_records else "0%")
+                
+                with col3:
+                    st.metric("Kaybeden", losing_trades, delta=f"%{(losing_trades/len(history_records)*100):.1f}" if history_records else "0%")
+                
+                with col4:
+                    pnl_color = "normal" if total_pnl >= 0 else "inverse"
+                    st.metric("Toplam PnL", f"${total_pnl:.2f}", delta_color=pnl_color)
+                
+                st.divider()
+                
+                data = []
+                for rec in history_records:
+                    symbol = rec.inst_id.replace('-USDT-SWAP', '') if rec.inst_id else 'N/A'
+                    data.append({
+                        "Coin": symbol,
+                        "Yön": rec.pos_side.upper() if rec.pos_side else 'N/A',
+                        "Kaldıraç": f"{rec.leverage}x" if rec.leverage else 'N/A',
+                        "Giriş": f"${rec.open_avg_px:.4f}" if rec.open_avg_px else "-",
+                        "Çıkış": f"${rec.close_avg_px:.4f}" if rec.close_avg_px else "-",
+                        "Miktar": f"{rec.close_total_pos:.2f}" if rec.close_total_pos else "-",
+                        "PnL": f"${rec.pnl:.2f}" if rec.pnl is not None else "-",
+                        "PnL %": f"{rec.pnl_ratio*100:.2f}%" if rec.pnl_ratio is not None else "-",
+                        "Tarih": rec.c_time.strftime('%Y-%m-%d %H:%M') if rec.c_time else "-"
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        finally:
+            db.close()
+    
+    with tab2:
+        st.subheader("Manuel Oluşturulan Pozisyonlar (Database)")
+        st.caption("Bu uygulama üzerinden manuel olarak açılmış pozisyonlar.")
+        
+        db = SessionLocal()
+        try:
+            closed_positions = db.query(Position).filter(Position.is_open == False).order_by(Position.closed_at.desc()).limit(50).all()
             
-            with col1:
-                st.metric("Toplam İşlem", len(closed_positions))
-            
-            with col2:
-                st.metric("Kazanan", winning_trades, delta=f"%{(winning_trades/len(closed_positions)*100):.1f}")
-            
-            with col3:
-                st.metric("Kaybeden", losing_trades, delta=f"%{(losing_trades/len(closed_positions)*100):.1f}")
-            
-            with col4:
-                pnl_color = "normal" if total_pnl >= 0 else "inverse"
-                st.metric("Toplam PnL", f"${total_pnl:.2f}", delta_color=pnl_color)
-            
-            st.divider()
-            
-            data = []
-            for pos in closed_positions:
-                data.append({
-                    "Coin": str(pos.symbol),
-                    "Yön": str(pos.side),
-                    "Miktar": f"${cast(float, pos.amount_usdt):.2f}",
-                    "Kaldıraç": f"{cast(int, pos.leverage)}x",
-                    "Giriş": f"${cast(float, pos.entry_price):.4f}" if pos.entry_price is not None else "-",
-                    "PnL": f"${cast(float, pos.pnl):.2f}" if pos.pnl is not None else "-",
-                    "Kapanış Nedeni": str(pos.close_reason) if pos.close_reason is not None else "-",
-                    "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M'),
-                    "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at is not None else "-",
-                    "Yeniden Açılma": cast(int, pos.reopen_count)
-                })
-            
-            df = pd.DataFrame(data)
-            st.dataframe(df, width="stretch", hide_index=True)
-    finally:
-        db.close()
+            if not closed_positions:
+                st.info("Henüz kapanmış manuel pozisyon bulunmuyor.")
+            else:
+                total_pnl = sum([(cast(float, pos.pnl) if pos.pnl is not None else 0.0) for pos in closed_positions])
+                winning_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) > 0])
+                losing_trades = len([pos for pos in closed_positions if pos.pnl is not None and cast(float, pos.pnl) < 0])
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Toplam İşlem", len(closed_positions))
+                
+                with col2:
+                    st.metric("Kazanan", winning_trades, delta=f"%{(winning_trades/len(closed_positions)*100):.1f}")
+                
+                with col3:
+                    st.metric("Kaybeden", losing_trades, delta=f"%{(losing_trades/len(closed_positions)*100):.1f}")
+                
+                with col4:
+                    pnl_color = "normal" if total_pnl >= 0 else "inverse"
+                    st.metric("Toplam PnL", f"${total_pnl:.2f}", delta_color=pnl_color)
+                
+                st.divider()
+                
+                data = []
+                for pos in closed_positions:
+                    data.append({
+                        "Coin": str(pos.symbol),
+                        "Yön": str(pos.side),
+                        "Miktar": f"${cast(float, pos.amount_usdt):.2f}",
+                        "Kaldıraç": f"{cast(int, pos.leverage)}x",
+                        "Giriş": f"${cast(float, pos.entry_price):.4f}" if pos.entry_price is not None else "-",
+                        "PnL": f"${cast(float, pos.pnl):.2f}" if pos.pnl is not None else "-",
+                        "Kapanış Nedeni": str(pos.close_reason) if pos.close_reason is not None else "-",
+                        "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M'),
+                        "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at is not None else "-",
+                        "Yeniden Açılma": cast(int, pos.reopen_count)
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        finally:
+            db.close()
 
 def show_orders_page():
     st.header("📋 Strateji Emirleri (TP/SL)")
