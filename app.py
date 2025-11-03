@@ -694,12 +694,14 @@ def show_history_page():
     
     with tab1:
         st.subheader("OKX Position History (Tüm Kapanmış Pozisyonlar)")
-        st.caption("OKX'ten alınan tüm geçmiş pozisyonlar. 'OKX'ten Çek' butonuna basarak güncelleyin.")
-        st.info("⏰ Saatler UTC (GMT+0) formatındadır. Yerel saat için +3 saat ekleyin.")
         
         db = SessionLocal()
         try:
-            history_records = db.query(PositionHistory).order_by(PositionHistory.u_time.desc()).limit(100).all()
+            total_count = db.query(PositionHistory).count()
+            st.caption(f"OKX'ten alınan tüm geçmiş pozisyonlar. Database'de toplam {total_count} kayıt bulunuyor. 'OKX'ten Çek' butonuna basarak güncelleyin.")
+            st.info("⏰ Saatler UTC (GMT+0) formatındadır. Yerel saat için +3 saat ekleyin.")
+            
+            history_records = db.query(PositionHistory).order_by(PositionHistory.u_time.desc()).all()
             
             if not history_records:
                 st.info("Henüz OKX'ten veri alınmamış. Yukarıdaki '📥 OKX'ten Çek' butonuna tıklayın.")
@@ -711,7 +713,7 @@ def show_history_page():
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Toplam İşlem", len(history_records))
+                    st.metric("Toplam İşlem", total_count)
                 
                 with col2:
                     st.metric("Kazanan", winning_trades, delta=f"%{(winning_trades/len(history_records)*100):.1f}" if history_records else "0%")
