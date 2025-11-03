@@ -512,13 +512,15 @@ class OKXTestnetClient:
             print(f"Error getting trades: {e}")
             return []
     
-    def get_positions_history(self, inst_type: str = "SWAP", limit: int = 100) -> list:
+    def get_positions_history(self, inst_type: str = "SWAP", limit: int = 100, before: str = None, after: str = None) -> list:
         """
-        Get positions history from OKX
+        Get positions history from OKX with pagination support
         
         Args:
             inst_type: Instrument type (SWAP, FUTURES, etc.)
             limit: Number of results (max 100)
+            before: Pagination cursor - get records before this posId
+            after: Pagination cursor - get records after this posId
         
         Returns:
             List of historical position data
@@ -526,10 +528,17 @@ class OKXTestnetClient:
         if not self.account_api:
             return []
         try:
-            result = self.account_api.get_positions_history(
-                instType=inst_type,
-                limit=str(limit)
-            )
+            params = {
+                'instType': inst_type,
+                'limit': str(limit)
+            }
+            
+            if before:
+                params['before'] = str(before)
+            if after:
+                params['after'] = str(after)
+            
+            result = self.account_api.get_positions_history(**params)
             
             if result.get('code') == '0' and result.get('data'):
                 return list(result['data'])
