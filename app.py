@@ -358,6 +358,9 @@ def show_new_trade_page():
             from background_scheduler import get_monitor
             monitor = get_monitor()
             
+            # Track if we have any countdowns to show
+            has_active_countdown = False
+            
             for pos in all_positions:
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
                 
@@ -383,8 +386,10 @@ def show_new_trade_page():
                             minutes = int(remaining.total_seconds() // 60)
                             seconds = int(remaining.total_seconds() % 60)
                             st.caption(f"⏱️ **{minutes:02d}:{seconds:02d}**")
+                            has_active_countdown = True  # Mark that we have an active countdown
                         else:
                             st.caption("🔄 **Açılıyor...**")
+                            has_active_countdown = True  # Opening now
                     elif bool(pos.is_open):
                         st.caption(f"**AÇIK**")
                     else:
@@ -403,6 +408,12 @@ def show_new_trade_page():
                             setattr(pos, 'closed_at', None)
                             db.commit()
                             st.rerun()
+            
+            # Auto-refresh if there are active countdowns
+            if has_active_countdown:
+                import time
+                time.sleep(1)  # Wait 1 second
+                st.rerun()  # Auto-refresh to update countdown
     finally:
         db.close()
 
