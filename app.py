@@ -376,7 +376,7 @@ def show_new_trade_page():
                     st.caption(f"**{status_text}**")
                 
                 with col4:
-                    if pos.is_open:
+                    if bool(pos.is_open):
                         if st.button("⚫", key=f"close_{pos.id}", help="Kapat", use_container_width=True):
                             pos.is_open = False
                             pos.closed_at = datetime.utcnow()
