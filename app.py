@@ -355,198 +355,39 @@ def show_new_trade_page():
             )
             
             st.divider()
-            st.subheader("⚙️ Pozisyon Yönetimi")
+            st.subheader("🔧 Pozisyon Kontrolü - Aç/Kapat")
+            st.caption("Her pozisyonun durumunu değiştirerek bot'un auto-reopen davranışını kontrol edin")
             
-            position_ids = [pos.id for pos in all_positions]
-            selected_position_id = st.selectbox(
-                "Yönetmek istediğiniz pozisyonu seçin:",
-                options=position_ids,
-                format_func=lambda x: f"Pozisyon #{x} - {next((p.symbol + (' 🟢AÇIK' if p.is_open else ' ⚫KAPALI') for p in all_positions if p.id == x), 'N/A')}"
-            )
-            
-            if selected_position_id:
-                selected_pos = next((p for p in all_positions if p.id == selected_position_id), None)
+            for pos in all_positions:
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
                 
-                if selected_pos:
-                    if selected_pos.is_open:
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.write("**✏️ TP/SL Değerlerini Değiştir**")
-                            # Handle None values for TP/SL
-                            tp_value = float(selected_pos.tp_usdt) if selected_pos.tp_usdt is not None else 10.0
-                            sl_value = float(selected_pos.sl_usdt) if selected_pos.sl_usdt is not None else 5.0
-                            
-                            new_tp = st.number_input(
-                                "Yeni TP (USDT)",
-                                min_value=0.1,
-                                value=tp_value,
-                                step=1.0,
-                                key=f"manage_tp_{selected_position_id}"
-                            )
-                            new_sl = st.number_input(
-                                "Yeni SL (USDT)",
-                                min_value=0.1,
-                                value=sl_value,
-                                step=1.0,
-                                key=f"manage_sl_{selected_position_id}"
-                            )
-                            if st.button("💾 TP/SL Güncelle", key=f"btn_update_{selected_position_id}", type="primary"):
-                                selected_pos.tp_usdt = new_tp
-                                selected_pos.sl_usdt = new_sl
-                                db.commit()
-                                st.success("✅ TP/SL güncellendi!")
-                                st.info("💡 Mevcut TP/SL emirlerini 'Emirler' sayfasından iptal edip yenilerini oluşturabilirsiniz.")
-                                st.rerun()
-                        
-                        with col2:
-                            st.write("**⏹️ Pozisyon İşlemleri**")
-                            st.warning(f"Pozisyon: {selected_pos.symbol} - {selected_pos.side}")
-                            st.caption(f"Miktar: ${selected_pos.amount_usdt:.2f} | Kaldıraç: {selected_pos.leverage}x")
-                            
-                            col2_1, col2_2 = st.columns(2)
-                            
-                            with col2_1:
-                                if st.button("⏹️ Kapat", key=f"btn_close_{selected_position_id}", type="secondary", use_container_width=True):
-                                    with st.spinner("Pozisyon kapatılıyor..."):
-                                        position_side = selected_pos.position_side if selected_pos.position_side else ("long" if selected_pos.side == "LONG" else "short")
-                                        okx_pos = client.get_position(str(selected_pos.symbol), position_side)
-                                        close_side = "sell" if selected_pos.side == "LONG" else "buy"
-                                        
-                                        if okx_pos:
-                                            quantity = abs(float(okx_pos.get('positionAmt', 0)))
-                                            if quantity > 0:
-                                                success = client.close_position_market(
-                                                    str(selected_pos.symbol),
-                                                    close_side,
-                                                    quantity,
-                                                    position_side
-                                                )
-                                                if success:
-                                                    selected_pos.is_open = False
-                                                    selected_pos.closed_at = datetime.utcnow()
-                                                    selected_pos.close_reason = "Manuel kapatma"
-                                                    db.commit()
-                                                    st.success("✅ Pozisyon başarıyla kapatıldı!")
-                                                    st.rerun()
-                                                else:
-                                                    st.error("❌ Pozisyon kapatılamadı")
-                                            else:
-                                                st.error("❌ Pozisyon miktarı 0 - zaten kapalı olabilir")
-                                        else:
-                                            st.error("❌ OKX'te pozisyon bulunamadı")
-                            
-                            with col2_2:
-                                if st.button("🗑️ Sil", key=f"btn_delete_{selected_position_id}", type="secondary", use_container_width=True):
-                                    if st.session_state.get(f'confirm_delete_{selected_position_id}', False):
-                                        db.delete(selected_pos)
-                                        db.commit()
-                                        st.success("✅ Pozisyon database'den silindi!")
-                                        st.rerun()
-                                    else:
-                                        st.session_state[f'confirm_delete_{selected_position_id}'] = True
-                                        st.warning("⚠️ Tekrar 'Sil' butonuna basarak onaylayın!")
-                                        st.rerun()
-                    
+                with col1:
+                    status_icon = "🟢" if pos.is_open else "⚫"
+                    st.write(f"{status_icon} **#{pos.id} - {pos.symbol} {pos.side}**")
+                
+                with col2:
+                    # Safely format nullable fields
+                    tp_str = f"${pos.tp_usdt:.2f}" if pos.tp_usdt is not None else "—"
+                    sl_str = f"${pos.sl_usdt:.2f}" if pos.sl_usdt is not None else "—"
+                    st.caption(f"TP: {tp_str} | SL: {sl_str}")
+                
+                with col3:
+                    status_text = "AÇIK" if pos.is_open else "KAPALI"
+                    st.caption(f"**{status_text}**")
+                
+                with col4:
+                    if pos.is_open:
+                        if st.button("⚫", key=f"close_{pos.id}", help="Kapat", use_container_width=True):
+                            pos.is_open = False
+                            pos.closed_at = datetime.utcnow()
+                            db.commit()
+                            st.rerun()
                     else:
-                        st.info(f"⚫ Bu pozisyon kapalı")
-                        st.caption(f"Pozisyon: {selected_pos.symbol} - {selected_pos.side}")
-                        st.caption(f"Miktar: ${selected_pos.amount_usdt:.2f} | Kaldıraç: {selected_pos.leverage}x")
-                        st.caption(f"Açılış: {selected_pos.opened_at.strftime('%Y-%m-%d %H:%M:%S')}")
-                        if selected_pos.closed_at:
-                            st.caption(f"Kapanış: {selected_pos.closed_at.strftime('%Y-%m-%d %H:%M:%S')}")
-                        if selected_pos.pnl:
-                            st.caption(f"Gerçek PnL: ${selected_pos.pnl:.2f}")
-                        if selected_pos.close_reason:
-                            st.caption(f"Sebep: {selected_pos.close_reason}")
-                        
-                        st.divider()
-                        
-                        col_reopen1, col_reopen2 = st.columns(2)
-                        
-                        with col_reopen1:
-                            if st.button("🔄 Yeniden Aç", key=f"btn_reopen_{selected_position_id}", type="primary", use_container_width=True):
-                                with st.spinner("Pozisyon yeniden açılıyor..."):
-                                    strategy = Try1Strategy()
-                                    position_side = "long" if selected_pos.side == "LONG" else "short"
-                                    
-                                    # 1. OKX'te yeni pozisyon aç (database'e kaydetme)
-                                    success, message, _ = strategy.open_position(
-                                        symbol=selected_pos.symbol,
-                                        side=selected_pos.side,
-                                        amount_usdt=selected_pos.amount_usdt,
-                                        leverage=selected_pos.leverage,
-                                        tp_usdt=selected_pos.tp_usdt,
-                                        sl_usdt=selected_pos.sl_usdt,
-                                        save_to_db=False  # Database'e YENİ kayıt ekleme
-                                    )
-                                    
-                                    if success:
-                                        import time
-                                        time.sleep(2)  # OKX'in position ID'yi oluşturması için bekle
-                                        
-                                        # 2. OKX'ten yeni pozisyon bilgilerini al
-                                        okx_pos = strategy.client.get_position(selected_pos.symbol, position_side)
-                                        
-                                        if okx_pos and float(okx_pos.get('positionAmt', 0)) != 0:
-                                            new_entry_price = float(okx_pos.get('entryPrice', 0))
-                                            new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
-                                            new_pos_id = okx_pos.get('posId')
-                                            
-                                            # 3. MEVCUT database kaydını güncelle (yeni kayıt oluşturma!)
-                                            selected_pos.is_open = True
-                                            selected_pos.entry_price = new_entry_price
-                                            selected_pos.quantity = new_quantity
-                                            selected_pos.position_id = new_pos_id
-                                            selected_pos.opened_at = datetime.utcnow()
-                                            selected_pos.closed_at = None
-                                            selected_pos.pnl = None
-                                            selected_pos.close_reason = None
-                                            
-                                            # TP/SL emirleri güncelle
-                                            tp_price, sl_price = strategy.calculate_tp_sl_prices(
-                                                entry_price=new_entry_price,
-                                                side=selected_pos.side,
-                                                tp_usdt=selected_pos.tp_usdt,
-                                                sl_usdt=selected_pos.sl_usdt,
-                                                quantity=new_quantity,
-                                                symbol=selected_pos.symbol
-                                            )
-                                            
-                                            tp_order_id, sl_order_id = strategy.client.place_tp_sl_orders(
-                                                symbol=selected_pos.symbol,
-                                                side=selected_pos.side,
-                                                quantity=new_quantity,
-                                                entry_price=new_entry_price,
-                                                tp_price=tp_price,
-                                                sl_price=sl_price,
-                                                position_side=position_side
-                                            )
-                                            
-                                            selected_pos.tp_order_id = tp_order_id
-                                            selected_pos.sl_order_id = sl_order_id
-                                            
-                                            db.commit()
-                                            
-                                            st.success(f"✅ Pozisyon #{selected_pos.id} yeniden açıldı!")
-                                            st.info(f"Entry: ${new_entry_price:.4f} | Quantity: {new_quantity}")
-                                            st.rerun()
-                                        else:
-                                            st.error("❌ OKX'ten pozisyon bilgisi alınamadı")
-                                    else:
-                                        st.error(f"❌ {message}")
-                        
-                        with col_reopen2:
-                            if st.button("🗑️ Sil", key=f"btn_delete_closed_{selected_position_id}", type="secondary", use_container_width=True):
-                                if st.session_state.get(f'confirm_delete_closed_{selected_position_id}', False):
-                                    db.delete(selected_pos)
-                                    db.commit()
-                                    st.success("✅ Pozisyon database'den silindi!")
-                                    st.rerun()
-                                else:
-                                    st.session_state[f'confirm_delete_closed_{selected_position_id}'] = True
-                                    st.warning("⚠️ Tekrar 'Sil' butonuna basarak onaylayın!")
-                                    st.rerun()
+                        if st.button("🟢", key=f"open_{pos.id}", help="Aç", use_container_width=True):
+                            pos.is_open = True
+                            pos.closed_at = None
+                            db.commit()
+                            st.rerun()
     finally:
         db.close()
 
