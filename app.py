@@ -51,7 +51,7 @@ def main():
         if bot_running:
             st.success("✅ Bot Çalışıyor")
             st.caption("Pozisyonlar otomatik takip ediliyor")
-            if st.button("⏹️ Botu Durdur", type="primary", use_container_width=True):
+            if st.button("⏹️ Botu Durdur", type="primary", width="stretch"):
                 if stop_monitor():
                     st.success("Bot durduruldu!")
                     st.rerun()
@@ -60,7 +60,7 @@ def main():
         else:
             st.error("⏸️ Bot Durdu")
             st.caption("Pozisyonlar takip edilmiyor")
-            if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
+            if st.button("▶️ Botu Başlat", type="primary", width="stretch"):
                 reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 3)
                 if start_monitor(reopen_delay):
                     st.success(f"Bot başlatıldı! (Auto-reopen: {reopen_delay} dk)")
@@ -428,13 +428,13 @@ def show_new_trade_page():
                 
                 with col4:
                     if bool(pos.is_open):
-                        if st.button("⚫", key=f"close_{pos.id}", help="Kapat", use_container_width=True):
+                        if st.button("⚫", key=f"close_{pos.id}", help="Kapat", width="stretch"):
                             setattr(pos, 'is_open', False)
                             setattr(pos, 'closed_at', datetime.utcnow())
                             db.commit()
                             st.rerun()
                     else:
-                        if st.button("🟢", key=f"open_{pos.id}", help="Aç", use_container_width=True):
+                        if st.button("🟢", key=f"open_{pos.id}", help="Aç", width="stretch"):
                             setattr(pos, 'is_open', True)
                             setattr(pos, 'closed_at', None)
                             db.commit()
@@ -572,7 +572,7 @@ def show_active_positions_page():
                 })
             
             df = pd.DataFrame(table_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
         finally:
             db.close()
     
@@ -583,11 +583,11 @@ def show_history_page():
     col1, col2, col3 = st.columns([2, 1, 1])
     
     with col2:
-        if st.button("🔄 Yenile ", use_container_width=True):
+        if st.button("🔄 Yenile ", width="stretch"):
             st.rerun()
     
     with col3:
-        if st.button("📥 OKX'ten Çek", use_container_width=True):
+        if st.button("📥 OKX'ten Çek", width="stretch"):
             with st.spinner("OKX'ten position history alınıyor..."):
                 from sync_okx_history import sync_okx_position_history
                 count, error = sync_okx_position_history()
@@ -692,7 +692,7 @@ def show_history_page():
                     })
                 
                 df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)
         finally:
             db.close()
     
@@ -757,7 +757,7 @@ def show_history_page():
                     })
                 
                 df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)
         finally:
             db.close()
 
@@ -842,7 +842,7 @@ def show_orders_page():
             })
         
         df = pd.DataFrame(table_data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
         
         st.divider()
         st.subheader("🛠️ Emir İşlemleri")
@@ -866,7 +866,7 @@ def show_orders_page():
             
             with col_action1:
                 st.write("**🗑️ Emri İptal Et**")
-                if st.button("🗑️ İptal Et", key=f"cancel_{selected_order_id}", use_container_width=True):
+                if st.button("🗑️ İptal Et", key=f"cancel_{selected_order_id}", width="stretch"):
                     with st.spinner("İptal ediliyor..."):
                         symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
                         success = client.cancel_algo_order(symbol_base, selected_order_id)
@@ -905,7 +905,7 @@ def show_orders_page():
                     key=f"edit_size_{selected_order_id}"
                 )
                 
-                if st.button("💾 Kaydet", key=f"save_{selected_order_id}", use_container_width=True):
+                if st.button("💾 Kaydet", key=f"save_{selected_order_id}", width="stretch"):
                     with st.spinner("Güncelleniyor..."):
                         symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
                         success = client.amend_algo_order(
@@ -1095,7 +1095,7 @@ def show_settings_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("⏸️ Botu Durdur", type="secondary", use_container_width=True):
+            if st.button("⏸️ Botu Durdur", type="secondary", width="stretch"):
                 if stop_monitor():
                     st.success("✅ Background scheduler durduruldu!")
                     st.rerun()
@@ -1121,7 +1121,7 @@ def show_settings_page():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
+            if st.button("▶️ Botu Başlat", type="primary", width="stretch"):
                 reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 5)
                 if start_monitor(reopen_delay):
                     st.success(f"✅ Background scheduler başlatıldı! (Auto-reopen: {reopen_delay} dakika)")
