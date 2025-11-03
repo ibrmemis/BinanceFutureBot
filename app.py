@@ -378,14 +378,14 @@ def show_new_trade_page():
                 with col4:
                     if bool(pos.is_open):
                         if st.button("⚫", key=f"close_{pos.id}", help="Kapat", use_container_width=True):
-                            pos.is_open = False
-                            pos.closed_at = datetime.utcnow()
+                            setattr(pos, 'is_open', False)
+                            setattr(pos, 'closed_at', datetime.utcnow())
                             db.commit()
                             st.rerun()
                     else:
                         if st.button("🟢", key=f"open_{pos.id}", help="Aç", use_container_width=True):
-                            pos.is_open = True
-                            pos.closed_at = None
+                            setattr(pos, 'is_open', True)
+                            setattr(pos, 'closed_at', None)
                             db.commit()
                             st.rerun()
     finally:
