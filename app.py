@@ -43,7 +43,7 @@ def main():
         st.header("🤖 Bot Kontrolü")
         
         monitor = get_monitor()
-        bot_running = monitor.is_running()
+        bot_running = monitor.is_running() if monitor else False
         
         if bot_running:
             st.success("✅ Bot Çalışıyor")

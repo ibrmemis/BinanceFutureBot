@@ -236,7 +236,7 @@ class PositionMonitor:
         return self.scheduler.running
 
 monitor = None
-manually_stopped = False
+manually_stopped = True  # Bot otomatik başlamasın, sadece manuel Start ile
 
 def get_monitor():
     global monitor, manually_stopped
