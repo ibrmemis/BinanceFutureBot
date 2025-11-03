@@ -372,25 +372,23 @@ def show_new_trade_page():
                     st.caption(f"TP: {tp_str} | SL: {sl_str}")
                 
                 with col3:
-                    if bool(pos.is_open):
-                        status_text = "AÇIK"
-                        st.caption(f"**{status_text}**")
-                    else:
-                        # Show countdown for closed positions in reopen queue
-                        if monitor and pos.id in monitor.closed_positions_for_reopen:
-                            from datetime import timedelta
-                            closed_time = monitor.closed_positions_for_reopen[pos.id]
-                            reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
-                            remaining = reopen_time - datetime.utcnow()
-                            
-                            if remaining.total_seconds() > 0:
-                                minutes = int(remaining.total_seconds() // 60)
-                                seconds = int(remaining.total_seconds() % 60)
-                                st.caption(f"⏱️ **{minutes:02d}:{seconds:02d}**")
-                            else:
-                                st.caption("🔄 **Açılıyor...**")
+                    # Show countdown if position is in reopen queue (regardless of is_open status)
+                    if monitor and pos.id in monitor.closed_positions_for_reopen:
+                        from datetime import timedelta
+                        closed_time = monitor.closed_positions_for_reopen[pos.id]
+                        reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
+                        remaining = reopen_time - datetime.utcnow()
+                        
+                        if remaining.total_seconds() > 0:
+                            minutes = int(remaining.total_seconds() // 60)
+                            seconds = int(remaining.total_seconds() % 60)
+                            st.caption(f"⏱️ **{minutes:02d}:{seconds:02d}**")
                         else:
-                            st.caption(f"**KAPALI**")
+                            st.caption("🔄 **Açılıyor...**")
+                    elif bool(pos.is_open):
+                        st.caption(f"**AÇIK**")
+                    else:
+                        st.caption(f"**KAPALI**")
                 
                 with col4:
                     if bool(pos.is_open):
