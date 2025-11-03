@@ -177,31 +177,23 @@ class PositionMonitor:
                             position_side=position_side
                         )
                         
-                        # YENİ pozisyon kaydı oluştur (parent_position_id ile eski pozisyona bağla)
-                        new_position = Position(
-                            symbol=pos.symbol,
-                            side=pos.side,
-                            amount_usdt=pos.amount_usdt,
-                            leverage=pos.leverage,
-                            tp_usdt=pos.tp_usdt,
-                            sl_usdt=pos.sl_usdt,
-                            entry_price=new_entry_price,
-                            quantity=new_quantity,
-                            position_id=new_pos_id,
-                            position_side=position_side,
-                            tp_order_id=tp_order_id,
-                            sl_order_id=sl_order_id,
-                            is_open=True,
-                            opened_at=datetime.utcnow(),
-                            parent_position_id=pos.id
-                        )
+                        # MEVCUT database kaydını güncelle (yeni kayıt oluşturma!)
+                        pos.entry_price = new_entry_price
+                        pos.quantity = new_quantity
+                        pos.position_id = new_pos_id
+                        pos.tp_order_id = tp_order_id
+                        pos.sl_order_id = sl_order_id
+                        pos.is_open = True
+                        pos.opened_at = datetime.utcnow()
+                        pos.closed_at = None
+                        pos.pnl = None
+                        pos.close_reason = None
                         
-                        db.add(new_position)
                         db.commit()
                         
                         # Başarılı reopen - queue'dan çıkar
                         positions_to_remove.append(pos_id)
-                        print(f"✅ Pozisyon yeniden açıldı: {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | Parent ID: {pos.id} → New ID: {new_position.id}")
+                        print(f"✅ Pozisyon yeniden açıldı (UPDATE): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | DB ID: {pos.id}")
                         
                     except Exception as e:
                         db.rollback()  # Session'ı temizle

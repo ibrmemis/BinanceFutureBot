@@ -45,14 +45,14 @@ Preferred communication style: Simple, everyday language.
     - **Position ID Tracking**: Each position stores OKX's unique `posId` field in the `position_id` column
     - **Position Identification**: Positions are tracked by their unique OKX `posId`, not by order/trade IDs
     - **Open/Closed Status**: Position status is determined by checking if the `posId` exists in OKX and has non-zero position amount
-    - **Position Chains**: Each reopened position links to its parent via `parent_position_id`, creating audit trail (A→B→C→D...)
-    - **Infinite Reopen**: Every closed position creates a new database record when reopened (no update, always INSERT)
+    - **Infinite Reopen**: When a position closes, the SAME database record is updated and reopened (no new record created)
+    - **parent_position_id**: Field exists for historical data but no longer used (positions update in place)
 
 - **Database vs OKX**:
   - **New Trade Page**: Shows positions from database (all positions)
   - **Active Positions Page**: Shows ALL positions from OKX in real-time
-  - **Auto-reopened positions**: Saved to database as NEW records with `parent_position_id` linkage
-  - **Manual positions**: Saved to database as root records with `parent_position_id = NULL`
+  - **Auto-reopened positions**: SAME database record is updated with new OKX position data
+  - **Manual positions**: Created as new database records when user opens a trade
 
 - **Security**: API credentials are encrypted using Fernet (symmetric encryption) with a key derived from SESSION_SECRET environment variable
 - **Rationale**: 
@@ -87,11 +87,11 @@ Preferred communication style: Simple, everyday language.
   - `manually_stopped` flag persists stop state across function calls
 - **Infinite Auto-Reopen Mechanism** (Updated Nov 2025):
   - **NO LIMIT**: Positions reopen infinitely - each closure triggers a new reopen after configured delay
-  - **New Record Per Reopen**: Each reopened position creates NEW database record (never updates existing)
-  - **Parent Linkage**: `parent_position_id` creates chain: Manual Pos (ID:1) → Reopen (ID:2, parent:1) → Reopen (ID:3, parent:2)...
-  - **Unique Tracking**: Each position has unique database ID and OKX `posId`, no conflicts
+  - **UPDATE In-Place**: Closed positions are UPDATED (not new records) - same DB ID, refreshed with new OKX data
+  - **Single Record Per Position**: Each manual trade creates ONE database record that gets reused infinitely
+  - **OKX Position ID Updated**: After each reopen, the OKX `posId` field updates to new position ID
   - **Retry Logic**: API/network failures keep position in reopen queue, retry every 30 sec until success
-  - **User Requested**: Explicitly requested unlimited reopen without safety limits
+  - **User Requested**: Explicitly requested unlimited reopen with UPDATE instead of INSERT
 - **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts. Infinite reopen enables continuous trading without manual intervention.
 
 ## External Dependencies
