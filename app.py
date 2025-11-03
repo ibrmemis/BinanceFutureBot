@@ -37,7 +37,7 @@ def check_api_keys():
 
 def main():
     if 'auto_reopen_delay_minutes' not in st.session_state:
-        st.session_state.auto_reopen_delay_minutes = 5
+        st.session_state.auto_reopen_delay_minutes = 3
     
     st.title("📈 OKX Futures Trading Bot (Demo Trading)")
     st.caption("OKX Demo Trading üzerinde çalışan otomatik futures trading botu")
@@ -61,7 +61,7 @@ def main():
             st.error("⏸️ Bot Durdu")
             st.caption("Pozisyonlar takip edilmiyor")
             if st.button("▶️ Botu Başlat", type="primary", use_container_width=True):
-                reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 5)
+                reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 3)
                 if start_monitor(reopen_delay):
                     st.success(f"Bot başlatıldı! (Auto-reopen: {reopen_delay} dk)")
                     st.rerun()
@@ -362,7 +362,7 @@ def show_new_trade_page():
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
                 
                 with col1:
-                    status_icon = "🟢" if pos.is_open else "⚫"
+                    status_icon = "🟢" if bool(pos.is_open) else "⚫"
                     st.write(f"{status_icon} **#{pos.id} - {pos.symbol} {pos.side}**")
                 
                 with col2:
@@ -372,7 +372,7 @@ def show_new_trade_page():
                     st.caption(f"TP: {tp_str} | SL: {sl_str}")
                 
                 with col3:
-                    status_text = "AÇIK" if pos.is_open else "KAPALI"
+                    status_text = "AÇIK" if bool(pos.is_open) else "KAPALI"
                     st.caption(f"**{status_text}**")
                 
                 with col4:
