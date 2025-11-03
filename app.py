@@ -361,12 +361,9 @@ def show_new_trade_page():
             # Check if we have any positions in reopen queue
             has_queued_positions = monitor and len(monitor.closed_positions_for_reopen) > 0
             
-            # Auto-refresh every 10 seconds if there are queued positions
+            # Show info if there are queued positions
             if has_queued_positions:
                 st.info("⏱️ **Geri sayım aktif!** Sayfa otomatik olarak 10 saniyede bir yenileniyor...")
-                import time
-                time.sleep(10)
-                st.rerun()
             
             for pos in all_positions:
                 col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
@@ -442,6 +439,20 @@ def show_new_trade_page():
                             setattr(pos, 'closed_at', None)
                             db.commit()
                             st.rerun()
+            
+            # Auto-refresh page after 10 seconds if there are queued positions
+            if has_queued_positions:
+                import streamlit.components.v1 as components
+                components.html(
+                    """
+                    <script>
+                        setTimeout(function() {
+                            window.parent.location.reload();
+                        }, 10000);
+                    </script>
+                    """,
+                    height=0
+                )
     finally:
         db.close()
 
