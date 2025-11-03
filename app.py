@@ -1159,8 +1159,10 @@ def show_settings_page():
     
     if auto_reopen_delay != st.session_state.auto_reopen_delay_minutes:
         st.session_state.auto_reopen_delay_minutes = auto_reopen_delay
-        st.success(f"✅ Auto-reopen süresi {auto_reopen_delay} dakika olarak güncellendi!")
+        st.success(f"✅ Auto-reopen süresi **{auto_reopen_delay} dakika** olarak güncellendi!")
         st.info("⚠️ Değişikliğin uygulanması için botu durdurup tekrar başlatın.")
+    else:
+        st.caption(f"📌 Mevcut ayar: **{st.session_state.auto_reopen_delay_minutes} dakika**")
     
     st.divider()
     
