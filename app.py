@@ -313,12 +313,12 @@ def show_new_trade_page():
                     else:
                         pnl_display = "—"
                 
-                # Reopen indicator
-                reopen_badge = f" 🔄{pos.reopen_count}" if pos.reopen_count and pos.reopen_count > 0 else ""
+                # Parent indicator (reopen chain)
+                parent_badge = " 🔗" if pos.parent_position_id else ""
                 
                 table_data.append({
                     "ID": pos.id,
-                    "Durum": status + reopen_badge,
+                    "Durum": status + parent_badge,
                     "Coin": pos.symbol,
                     "Yön": direction,
                     "Kaldıraç": f"{db_leverage}x",
@@ -502,7 +502,6 @@ def show_new_trade_page():
                                             selected_pos.closed_at = None
                                             selected_pos.pnl = None
                                             selected_pos.close_reason = None
-                                            selected_pos.reopen_count = (selected_pos.reopen_count or 0) + 1
                                             
                                             # TP/SL emirleri güncelle
                                             tp_price, sl_price = strategy.calculate_tp_sl_prices(
@@ -530,7 +529,7 @@ def show_new_trade_page():
                                             db.commit()
                                             
                                             st.success(f"✅ Pozisyon #{selected_pos.id} yeniden açıldı!")
-                                            st.info(f"Reopen Count: {selected_pos.reopen_count} | Entry: ${new_entry_price:.4f}")
+                                            st.info(f"Entry: ${new_entry_price:.4f} | Quantity: {new_quantity}")
                                             st.rerun()
                                         else:
                                             st.error("❌ OKX'ten pozisyon bilgisi alınamadı")
@@ -835,6 +834,9 @@ def show_history_page():
                     else:
                         pnl_colored = pnl_display
                     
+                    # Parent pozisyon var mı kontrolü (reopen chain)
+                    parent_indicator = "🔗 Evet" if pos.parent_position_id else "—"
+                    
                     data.append({
                         "Coin": str(pos.symbol),
                         "Yön": str(pos.side),
@@ -845,7 +847,7 @@ def show_history_page():
                         "Kapanış Nedeni": str(pos.close_reason) if pos.close_reason is not None else "-",
                         "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M'),
                         "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at is not None else "-",
-                        "Yeniden Açılma": cast(int, pos.reopen_count)
+                        "Reopen Zinciri": parent_indicator
                     })
                 
                 df = pd.DataFrame(data)
