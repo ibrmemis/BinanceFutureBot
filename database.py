@@ -85,7 +85,6 @@ class Position(Base):
     closed_at = Column(DateTime, nullable=True)
     pnl = Column(Float, nullable=True)
     close_reason = Column(String, nullable=True)
-    reopen_count = Column(Integer, default=0)
     parent_position_id = Column(Integer, nullable=True)
     
     def __repr__(self):
