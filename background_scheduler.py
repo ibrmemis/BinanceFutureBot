@@ -24,21 +24,23 @@ class PositionMonitor:
             if not self.strategy or not self.strategy.client.is_configured():
                 return
             
-            self.strategy.check_and_update_positions()
+            # DO NOT call check_and_update_positions() - we don't want to auto-close positions
+            # User controls position state manually via UI buttons
             
             db = SessionLocal()
             try:
+                # Find positions marked as closed (is_open = FALSE)
+                # These were manually closed by user via UI
                 recently_closed = db.query(Position).filter(
                     Position.is_open == False,
                     Position.closed_at >= datetime.utcnow() - timedelta(minutes=10)
                 ).all()
                 
                 for pos in recently_closed:
-                    # Sadece gerçekten kapanmış pozisyonları reopen queue'ya ekle
-                    # (pnl değeri varsa pozisyon gerçekten kapatılmış demektir)
-                    if pos.id not in self.closed_positions_for_reopen and pos.pnl is not None:
+                    # Add to reopen queue only if not already there
+                    if pos.id not in self.closed_positions_for_reopen:
                         self.closed_positions_for_reopen[pos.id] = pos.closed_at
-                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side} (PnL: ${pos.pnl:.2f})")
+                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side}")
                 
             finally:
                 db.close()
