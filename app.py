@@ -613,6 +613,8 @@ def show_active_positions_page():
         
         db = SessionLocal()
         try:
+            table_data = []
+            
             for okx_pos in okx_positions:
                 inst_id = okx_pos.get('instId', '')
                 symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '')
@@ -625,68 +627,43 @@ def show_active_positions_page():
                 position_amt = abs(float(okx_pos.get('positionAmt', 0)))
                 pos_id = okx_pos.get('posId', 'N/A')
                 
+                current_price = client.get_symbol_price(symbol)
+                
                 tp_price = None
                 sl_price = None
                 db_position = db.query(Position).filter(Position.position_id == pos_id).first()
                 if db_position and position_amt > 0 and db_position.tp_usdt and db_position.sl_usdt:
+                    contract_value = client.get_contract_value(symbol)
+                    crypto_amount = position_amt * contract_value
+                    
+                    price_change_tp = db_position.tp_usdt / crypto_amount
+                    price_change_sl = db_position.sl_usdt / crypto_amount
+                    
                     if side == "LONG":
-                        tp_price = entry_price + (db_position.tp_usdt / position_amt)
-                        sl_price = entry_price - (db_position.sl_usdt / position_amt)
+                        tp_price = entry_price + price_change_tp
+                        sl_price = entry_price - price_change_sl
                     else:
-                        tp_price = entry_price - (db_position.tp_usdt / position_amt)
-                        sl_price = entry_price + (db_position.sl_usdt / position_amt)
+                        tp_price = entry_price - price_change_tp
+                        sl_price = entry_price + price_change_sl
                 
-                current_price = client.get_symbol_price(symbol)
+                direction_icon = "🟢" if side == "LONG" else "🔴"
+                pnl_icon = "🟢" if unrealized_pnl >= 0 else "🔴"
                 
-                with st.container():
-                    col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
-                    
-                    with col1:
-                        st.metric("Coin", symbol)
-                    
-                    with col2:
-                        direction_color = "🟢" if side == "LONG" else "🔴"
-                        st.metric("Yön", f"{direction_color} {side}")
-                    
-                    with col3:
-                        st.metric("Kaldıraç", f"{leverage}x")
-                    
-                    with col4:
-                        st.metric("Kontrat", f"{int(position_amt)}")
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.caption(f"Giriş: ${entry_price:.4f}")
-                    
-                    with col2:
-                        if current_price:
-                            st.caption(f"Şu an: ${current_price:.4f}")
-                        else:
-                            st.caption("Fiyat: N/A")
-                    
-                    with col3:
-                        pnl_color = "🟢" if unrealized_pnl >= 0 else "🔴"
-                        st.caption(f"PnL: {pnl_color} ${unrealized_pnl:.2f}")
-                    
-                    with col4:
-                        st.caption(f"PosID: {pos_id}")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if tp_price:
-                            st.caption(f"🎯 TP Hedef: ${tp_price:.4f}")
-                        else:
-                            st.caption("🎯 TP Hedef: N/A")
-                    
-                    with col2:
-                        if sl_price:
-                            st.caption(f"🛑 SL Hedef: ${sl_price:.4f}")
-                        else:
-                            st.caption("🛑 SL Hedef: N/A")
-                    
-                    st.divider()
+                table_data.append({
+                    "Coin": symbol,
+                    "Yön": f"{direction_icon} {side}",
+                    "Kaldıraç": f"{leverage}x",
+                    "Kontrat": int(position_amt),
+                    "Giriş": f"${entry_price:.4f}",
+                    "Şu an": f"${current_price:.4f}" if current_price else "N/A",
+                    "PnL": f"{pnl_icon} ${unrealized_pnl:.2f}",
+                    "TP Hedef": f"${tp_price:.4f}" if tp_price else "N/A",
+                    "SL Hedef": f"${sl_price:.4f}" if sl_price else "N/A",
+                    "PosID": pos_id
+                })
+            
+            df = pd.DataFrame(table_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
         finally:
             db.close()
     
