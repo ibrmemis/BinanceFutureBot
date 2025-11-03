@@ -760,6 +760,16 @@ def show_history_page():
                 data = []
                 for rec in history_records:
                     symbol = rec.inst_id.replace('-USDT-SWAP', '') if rec.inst_id else 'N/A'
+                    pnl_value = rec.pnl if rec.pnl is not None else 0
+                    pnl_display = f"${pnl_value:.2f}" if rec.pnl is not None else "-"
+                    
+                    if pnl_value > 0:
+                        pnl_colored = f"🟢 {pnl_display}"
+                    elif pnl_value < 0:
+                        pnl_colored = f"🔴 {pnl_display}"
+                    else:
+                        pnl_colored = pnl_display
+                    
                     data.append({
                         "Coin": symbol,
                         "Yön": rec.pos_side.upper() if rec.pos_side else 'N/A',
@@ -767,7 +777,7 @@ def show_history_page():
                         "Giriş": f"${rec.open_avg_px:.4f}" if rec.open_avg_px else "-",
                         "Çıkış": f"${rec.close_avg_px:.4f}" if rec.close_avg_px else "-",
                         "Miktar": f"{rec.close_total_pos:.2f}" if rec.close_total_pos else "-",
-                        "PnL": f"${rec.pnl:.2f}" if rec.pnl is not None else "-",
+                        "PnL": pnl_colored,
                         "PnL %": f"{rec.pnl_ratio*100:.2f}%" if rec.pnl_ratio is not None else "-",
                         "Kapanış (UTC)": rec.u_time.strftime('%Y-%m-%d %H:%M:%S') if rec.u_time else "-"
                     })
@@ -811,13 +821,23 @@ def show_history_page():
                 
                 data = []
                 for pos in closed_positions:
+                    pnl_value = cast(float, pos.pnl) if pos.pnl is not None else 0.0
+                    pnl_display = f"${pnl_value:.2f}" if pos.pnl is not None else "-"
+                    
+                    if pnl_value > 0:
+                        pnl_colored = f"🟢 {pnl_display}"
+                    elif pnl_value < 0:
+                        pnl_colored = f"🔴 {pnl_display}"
+                    else:
+                        pnl_colored = pnl_display
+                    
                     data.append({
                         "Coin": str(pos.symbol),
                         "Yön": str(pos.side),
                         "Miktar": f"${cast(float, pos.amount_usdt):.2f}",
                         "Kaldıraç": f"{cast(int, pos.leverage)}x",
                         "Giriş": f"${cast(float, pos.entry_price):.4f}" if pos.entry_price is not None else "-",
-                        "PnL": f"${cast(float, pos.pnl):.2f}" if pos.pnl is not None else "-",
+                        "PnL": pnl_colored,
                         "Kapanış Nedeni": str(pos.close_reason) if pos.close_reason is not None else "-",
                         "Açılış": pos.opened_at.strftime('%Y-%m-%d %H:%M'),
                         "Kapanış": pos.closed_at.strftime('%Y-%m-%d %H:%M') if pos.closed_at is not None else "-",
@@ -844,8 +864,19 @@ def show_orders_page():
         st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
         return
     
-    with st.spinner("OKX'ten emirler alınıyor..."):
+    with st.spinner("OKX'ten emirler ve pozisyonlar alınıyor..."):
         algo_orders = client.get_all_open_orders()
+        positions = client.get_all_positions()
+    
+    position_map = {}
+    for pos in positions:
+        inst_id = pos.get('instId', '')
+        pos_side = pos.get('posSide', '')
+        entry_px = pos.get('entryPrice', '0')
+        try:
+            position_map[f"{inst_id}_{pos_side}"] = float(entry_px)
+        except (ValueError, TypeError):
+            pass
     
     if not algo_orders:
         st.info("Şu anda aktif emir bulunmuyor.")
@@ -863,7 +894,23 @@ def show_orders_page():
             size = order.get('sz', '0')
             state = order.get('state', 'N/A')
             
-            trigger_type = "🎯 TP" if side == "sell" and pos_side == "long" else "🎯 TP" if side == "buy" and pos_side == "short" else "🛡️ SL"
+            entry_price = position_map.get(f"{inst_id}_{pos_side}", None)
+            
+            if entry_price is None or entry_price == 0:
+                trigger_type = "❓ Bilinmiyor"
+            else:
+                try:
+                    trigger_price_float = float(trigger_px)
+                    
+                    if pos_side == "long":
+                        trigger_type = "🎯 TP" if trigger_price_float > entry_price else "🛡️ SL"
+                    elif pos_side == "short":
+                        trigger_type = "🎯 TP" if trigger_price_float < entry_price else "🛡️ SL"
+                    else:
+                        trigger_type = "❓ Bilinmiyor"
+                except (ValueError, TypeError):
+                    trigger_type = "❓ Bilinmiyor"
+            
             direction_color = "🟢" if pos_side == "long" else "🔴"
             state_emoji = "✅" if state == "live" else "⏸️"
             
