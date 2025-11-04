@@ -136,6 +136,10 @@ class Try1Strategy:
                 if sl_result.get('code') == '0' and sl_result.get('data'):
                     sl_order_id = sl_result['data'][0]['algoId']
                     print(f"SL order placed immediately: {sl_order_id} @ ${sl_price:.4f}")
+                else:
+                    print(f"❌ SL order FAILED: {sl_result.get('msg', 'Unknown error')} - Code: {sl_result.get('code')}")
+            else:
+                print(f"❌ Invalid SL price: ${sl_price:.4f} (current: ${current_price_check:.4f}, side: {side})")
         
         time.sleep(5)
         
@@ -147,21 +151,24 @@ class Try1Strategy:
             if is_valid_tp:
                 inst_id = self.client.convert_symbol_to_okx(symbol)
                 close_side = "sell" if side == "LONG" else "buy"
-                # Use conditional order for TP (correct behavior)
+                # Use trigger order for TP (same as SL, just different trigger price)
                 tp_result = self.client.trade_api.place_algo_order(
                     instId=inst_id,
                     tdMode="cross",
                     side=close_side,
                     posSide=position_side,
-                    ordType="conditional",
+                    ordType="trigger",
                     sz=str(quantity),
-                    tpTriggerPx=str(round(tp_price, 4)),
-                    tpOrdPx="-1",
-                    reduceOnly=True
+                    triggerPx=str(round(tp_price, 4)),
+                    orderPx="-1"
                 )
                 if tp_result.get('code') == '0' and tp_result.get('data'):
                     tp_order_id = tp_result['data'][0]['algoId']
                     print(f"TP order placed after 5 seconds: {tp_order_id} @ ${tp_price:.4f} (entry: ${entry_price:.4f})")
+                else:
+                    print(f"❌ TP order FAILED: {tp_result.get('msg', 'Unknown error')} - Code: {tp_result.get('code')}")
+            else:
+                print(f"❌ Invalid TP price: ${tp_price:.4f} (current: ${current_price_check:.4f}, side: {side})")
         
         tp_sl_msg = ""
         if tp_order_id and sl_order_id:
