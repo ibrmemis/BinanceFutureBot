@@ -1116,9 +1116,24 @@ def show_settings_page():
     )
     
     if auto_reopen_delay != st.session_state.auto_reopen_delay_minutes:
+        old_delay = st.session_state.auto_reopen_delay_minutes
         st.session_state.auto_reopen_delay_minutes = auto_reopen_delay
-        st.success(f"✅ Auto-reopen süresi **{auto_reopen_delay} dakika** olarak güncellendi!")
-        st.info("⚠️ Değişikliğin uygulanması için botu durdurup tekrar başlatın.")
+        
+        # Otomatik restart: Bot çalışıyorsa restart et
+        from background_scheduler import get_monitor, stop_monitor, start_monitor
+        monitor = get_monitor()
+        if monitor and monitor.is_running():
+            st.info(f"⚙️ Ayar değişti: {old_delay} dk → {auto_reopen_delay} dk. Bot yeniden başlatılıyor...")
+            stop_monitor()
+            import time
+            time.sleep(1)
+            if start_monitor(auto_reopen_delay):
+                st.success(f"✅ Bot yeni ayarla yeniden başlatıldı! (Auto-reopen: {auto_reopen_delay} dakika)")
+            else:
+                st.error("❌ Bot yeniden başlatılamadı. Lütfen manuel olarak başlatın.")
+        else:
+            st.success(f"✅ Auto-reopen süresi **{auto_reopen_delay} dakika** olarak güncellendi!")
+            st.info("💡 Bot başlatıldığında bu ayar kullanılacak.")
     else:
         st.caption(f"📌 Mevcut ayar: **{st.session_state.auto_reopen_delay_minutes} dakika**")
     
