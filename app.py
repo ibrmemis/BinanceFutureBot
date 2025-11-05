@@ -137,12 +137,22 @@ def main():
 def show_new_trade_page():
     st.header("🎯 Yeni İşlem Aç - try1 Stratejisi")
     
+    # Get all available SWAP symbols from OKX
+    client = OKXTestnetClient()
+    all_symbols = client.get_all_swap_symbols()
+    
+    # Put popular coins first
+    popular_coins = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    other_coins = [s for s in all_symbols if s not in popular_coins]
+    ordered_symbols = popular_coins + other_coins
+    
     col1, col2 = st.columns(2)
     
     with col1:
         symbol = st.selectbox(
             "Coin Çifti",
-            ["SOLUSDT", "BTCUSDT", "ETHUSDT"]
+            ordered_symbols,
+            help=f"Toplam {len(all_symbols)} farklı SWAP çifti mevcut"
         )
         
         amount_usdt = st.number_input(
@@ -230,7 +240,45 @@ def show_new_trade_page():
                     st.error(f"❌ {message}")
     
     with col2:
-        client = OKXTestnetClient()
+        if st.button("💾 Pozisyonu Kaydet", width="stretch", help="OKX'de işlem yapmadan sadece database'e kaydet"):
+            # Save position to database without opening on OKX
+            db = SessionLocal()
+            try:
+                current_price = client.get_symbol_price(symbol)
+                if not current_price:
+                    st.error("Fiyat alınamadı")
+                else:
+                    position_side = "long" if side == "LONG" else "short"
+                    
+                    position = Position(
+                        symbol=symbol,
+                        side=side,
+                        amount_usdt=amount_usdt,
+                        leverage=leverage,
+                        tp_usdt=tp_usdt,
+                        sl_usdt=sl_usdt,
+                        entry_price=current_price,
+                        quantity=0.0,  # Will be calculated when actually opened
+                        order_id=None,
+                        position_id=None,
+                        position_side=position_side,
+                        tp_order_id=None,
+                        sl_order_id=None,
+                        is_open=True,
+                        parent_position_id=None
+                    )
+                    db.add(position)
+                    db.commit()
+                    db.refresh(position)
+                    st.success(f"✅ Pozisyon database'e kaydedildi! (ID: {position.id})")
+                    st.info("⚠️ Bu pozisyon OKX'de açılmadı. Bot bu pozisyonu monitör edecek ve auto-reopen yapacak.")
+            except Exception as e:
+                db.rollback()
+                st.error(f"❌ Kaydetme hatası: {e}")
+            finally:
+                db.close()
+    
+    with col3:
         if st.button("🔄 Mevcut Fiyat", width="stretch"):
             price = client.get_symbol_price(symbol)
             if price:
