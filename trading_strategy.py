@@ -67,7 +67,6 @@ class Try1Strategy:
         tp_usdt: float,
         sl_usdt: float,
         parent_position_id: int | None = None,
-        reopen_count: int = 0,
         save_to_db: bool = True
     ) -> tuple[bool, str, int | None]:
         if not self.client.is_configured():
@@ -198,7 +197,6 @@ class Try1Strategy:
                 tp_order_id=tp_order_id,
                 sl_order_id=sl_order_id,
                 is_open=True,
-                reopen_count=reopen_count,
                 parent_position_id=parent_position_id
             )
             db.add(position)
