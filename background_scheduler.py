@@ -2,15 +2,53 @@ import threading
 import time
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
-from database import SessionLocal, Position
+from database import SessionLocal, Position, Settings
 from trading_strategy import Try1Strategy
 
 class PositionMonitor:
-    def __init__(self, auto_reopen_delay_minutes: int = 5):
+    def __init__(self, auto_reopen_delay_minutes: int = None):
         self.scheduler = BackgroundScheduler()
         self.strategy = None
         self.closed_positions_for_reopen = {}
-        self.auto_reopen_delay_minutes = auto_reopen_delay_minutes
+        
+        # Load auto_reopen_delay from database or use provided value
+        if auto_reopen_delay_minutes is None:
+            self.auto_reopen_delay_minutes = self._load_auto_reopen_delay()
+        else:
+            self.auto_reopen_delay_minutes = auto_reopen_delay_minutes
+            self._save_auto_reopen_delay(auto_reopen_delay_minutes)
+    
+    def _load_auto_reopen_delay(self) -> int:
+        """Load auto-reopen delay from database, default to 1 minute if not set"""
+        db = SessionLocal()
+        try:
+            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
+            if setting:
+                return int(setting.value)
+            else:
+                # Default to 1 minute and save it
+                self._save_auto_reopen_delay(1)
+                return 1
+        finally:
+            db.close()
+    
+    def _save_auto_reopen_delay(self, minutes: int):
+        """Save auto-reopen delay to database"""
+        db = SessionLocal()
+        try:
+            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
+            if setting:
+                setting.value = str(minutes)
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = Settings(key="auto_reopen_delay_minutes", value=str(minutes))
+                db.add(setting)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Warning: Could not save auto_reopen_delay: {e}")
+        finally:
+            db.close()
     
     def _ensure_strategy(self):
         if self.strategy is None:

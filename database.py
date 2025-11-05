@@ -113,6 +113,17 @@ class PositionHistory(Base):
     def __repr__(self):
         return f"<PositionHistory {self.inst_id} {self.pos_side} PnL: ${self.pnl}>"
 
+class Settings(Base):
+    __tablename__ = "settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, nullable=False, unique=True, index=True)
+    value = Column(String, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<Settings {self.key}={self.value}>"
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

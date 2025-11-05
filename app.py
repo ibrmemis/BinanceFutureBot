@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import cast
-from database import init_db, SessionLocal, Position, APICredentials
+from database import init_db, SessionLocal, Position, APICredentials, Settings
 from okx_client import OKXTestnetClient
 from trading_strategy import Try1Strategy
 from background_scheduler import get_monitor, stop_monitor, start_monitor
@@ -37,7 +37,26 @@ def check_api_keys():
 
 def main():
     if 'auto_reopen_delay_minutes' not in st.session_state:
-        st.session_state.auto_reopen_delay_minutes = 3
+        # Load from database, default to 1 minute if not set
+        db = SessionLocal()
+        try:
+            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
+            if setting:
+                st.session_state.auto_reopen_delay_minutes = int(setting.value)
+            else:
+                # Default to 1 minute
+                st.session_state.auto_reopen_delay_minutes = 1
+                # Try to save default to database (ignore if already exists)
+                try:
+                    setting = Settings(key="auto_reopen_delay_minutes", value="1")
+                    db.add(setting)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    # Setting already exists, just use default
+                    pass
+        finally:
+            db.close()
     
     st.title("📈 OKX Futures Trading Bot (Demo Trading)")
     st.caption("OKX Demo Trading üzerinde çalışan otomatik futures trading botu")
@@ -1164,6 +1183,21 @@ def show_settings_page():
     if auto_reopen_delay != st.session_state.auto_reopen_delay_minutes:
         old_delay = st.session_state.auto_reopen_delay_minutes
         st.session_state.auto_reopen_delay_minutes = auto_reopen_delay
+        
+        # Save to database
+        db = SessionLocal()
+        try:
+            from database import Settings
+            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
+            if setting:
+                setting.value = str(auto_reopen_delay)
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = Settings(key="auto_reopen_delay_minutes", value=str(auto_reopen_delay))
+                db.add(setting)
+            db.commit()
+        finally:
+            db.close()
         
         # Otomatik restart: Bot çalışıyorsa restart et
         from background_scheduler import get_monitor, stop_monitor, start_monitor
