@@ -54,17 +54,6 @@ class PositionMonitor:
                         self.closed_positions_for_reopen[pos.id] = datetime.utcnow()
                         print(f"🔴 Pozisyon OKX'te manuel kapatılmış - queue'ya eklendi: {pos.symbol} {pos.side}")
                 
-                # Case 2: CLOSED positions (manually closed by user via UI)
-                recently_closed = db.query(Position).filter(
-                    Position.is_open == False,
-                    Position.closed_at >= datetime.utcnow() - timedelta(minutes=10)
-                ).all()
-                
-                for pos in recently_closed:
-                    if pos.id not in self.closed_positions_for_reopen:
-                        self.closed_positions_for_reopen[pos.id] = pos.closed_at
-                        print(f"Pozisyon auto-reopen queue'ya eklendi: {pos.symbol} {pos.side} (UI'da kapatıldı)")
-                
             finally:
                 db.close()
                 
