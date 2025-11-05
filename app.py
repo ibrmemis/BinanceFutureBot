@@ -354,6 +354,29 @@ def show_new_trade_page():
             st.subheader("🔧 Pozisyon Kontrolü - Aç/Kapat")
             st.caption("Her pozisyonun durumunu değiştirerek bot'un auto-reopen davranışını kontrol edin")
             
+            # Toplu işlem butonları
+            col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 1, 4])
+            
+            with col_bulk1:
+                if st.button("🟢 Tümünü Aç", width="stretch", help="Tüm pozisyonları açık duruma getirir"):
+                    for pos in all_positions:
+                        setattr(pos, 'is_open', True)
+                        setattr(pos, 'closed_at', None)
+                    db.commit()
+                    st.success("✅ Tüm pozisyonlar açık duruma getirildi!")
+                    st.rerun()
+            
+            with col_bulk2:
+                if st.button("⚫ Tümünü Kapat", width="stretch", help="Tüm pozisyonları kapalı duruma getirir"):
+                    for pos in all_positions:
+                        setattr(pos, 'is_open', False)
+                        setattr(pos, 'closed_at', datetime.utcnow())
+                    db.commit()
+                    st.success("✅ Tüm pozisyonlar kapalı duruma getirildi!")
+                    st.rerun()
+            
+            st.divider()
+            
             # Get monitor instance to check auto-reopen countdown
             from background_scheduler import get_monitor
             monitor = get_monitor()
