@@ -137,6 +137,27 @@ class OKXTestnetClient:
             print(f"Error getting account balance: {e}")
             return None
     
+    def get_all_swap_symbols(self) -> list[str]:
+        """Get all available SWAP symbols from OKX API"""
+        if not self.public_api:
+            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        
+        try:
+            result = self.public_api.get_instruments(instType='SWAP')
+            if result.get('code') == '0' and result.get('data'):
+                symbols = []
+                for instrument in result['data']:
+                    inst_id = instrument.get('instId', '')
+                    # Convert BTC-USDT-SWAP to BTCUSDT
+                    if '-USDT-SWAP' in inst_id:
+                        symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '') + 'USDT'
+                        symbols.append(symbol)
+                return sorted(symbols)
+            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        except Exception as e:
+            print(f"Error getting SWAP symbols: {e}")
+            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    
     def get_contract_value(self, symbol: str) -> float:
         """Get contract value (ctVal) for a symbol from OKX API"""
         if not self.public_api:
