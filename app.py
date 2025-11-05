@@ -402,8 +402,12 @@ def show_new_trade_page():
             st.subheader("🔧 Pozisyon Kontrolü - Aç/Kapat")
             st.caption("Her pozisyonun durumunu değiştirerek bot'un auto-reopen davranışını kontrol edin")
             
+            # Initialize session state for selected positions
+            if 'selected_positions' not in st.session_state:
+                st.session_state.selected_positions = set()
+            
             # Toplu işlem butonları
-            col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 1, 4])
+            col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns([1, 1, 1, 3])
             
             with col_bulk1:
                 if st.button("🟢 Tümünü Aç", width="stretch", help="Tüm pozisyonları açık duruma getirir"):
@@ -423,6 +427,35 @@ def show_new_trade_page():
                     st.success("✅ Tüm pozisyonlar kapalı duruma getirildi!")
                     st.rerun()
             
+            # Seçili pozisyonlar için toplu işlem
+            selected_count = len(st.session_state.selected_positions)
+            
+            with col_bulk3:
+                if selected_count > 0:
+                    if st.button(f"✅ Seçilileri Aç ({selected_count})", width="stretch", help="Seçili pozisyonları açık duruma getirir"):
+                        for pos in all_positions:
+                            if pos.id in st.session_state.selected_positions:
+                                setattr(pos, 'is_open', True)
+                                setattr(pos, 'closed_at', None)
+                        db.commit()
+                        st.session_state.selected_positions = set()
+                        st.success(f"✅ {selected_count} pozisyon açık duruma getirildi!")
+                        st.rerun()
+                else:
+                    st.caption("↓ Seçim yapın")
+            
+            with col_bulk4:
+                if selected_count > 0:
+                    if st.button(f"❌ Seçilileri Kapat ({selected_count})", width="stretch", help="Seçili pozisyonları kapalı duruma getirir"):
+                        for pos in all_positions:
+                            if pos.id in st.session_state.selected_positions:
+                                setattr(pos, 'is_open', False)
+                                setattr(pos, 'closed_at', datetime.utcnow())
+                        db.commit()
+                        st.session_state.selected_positions = set()
+                        st.success(f"✅ {selected_count} pozisyon kapalı duruma getirildi!")
+                        st.rerun()
+            
             st.divider()
             
             # Get monitor instance to check auto-reopen countdown
@@ -430,7 +463,20 @@ def show_new_trade_page():
             monitor = get_monitor()
             
             for pos in all_positions:
-                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                col0, col1, col2, col3, col4 = st.columns([0.3, 2.7, 2, 1, 1])
+                
+                with col0:
+                    # Checkbox for selecting position
+                    is_selected = st.checkbox(
+                        "",
+                        value=pos.id in st.session_state.selected_positions,
+                        key=f"select_{pos.id}",
+                        label_visibility="collapsed"
+                    )
+                    if is_selected and pos.id not in st.session_state.selected_positions:
+                        st.session_state.selected_positions.add(pos.id)
+                    elif not is_selected and pos.id in st.session_state.selected_positions:
+                        st.session_state.selected_positions.remove(pos.id)
                 
                 with col1:
                     status_icon = "🟢" if bool(pos.is_open) else "⚫"
