@@ -118,6 +118,13 @@ class PositionMonitor:
                 if pos_amt > 0:
                     position_keys.add((inst_id, pos_side))
             
+            # Build set of symbols with open positions (for trigger order protection)
+            open_symbols = set()
+            for pos in all_positions:
+                pos_amt = abs(float(pos.get('positionAmt', 0)))
+                if pos_amt > 0:
+                    open_symbols.add(pos.get('instId', ''))
+            
             cancelled_count = 0
             for order in all_orders:
                 if order.get('state') != 'live':
@@ -127,6 +134,11 @@ class PositionMonitor:
                 pos_side = order.get('posSide', '')
                 ord_type = order.get('ordType', 'unknown')
                 
+                # SKIP trigger orders for symbols with open positions (TP/SL protection)
+                if ord_type == 'trigger' and inst_id in open_symbols:
+                    continue
+                
+                # Check if order is orphaned (no matching position)
                 if (inst_id, pos_side) not in position_keys:
                     algo_id = order.get('algoId')
                     if algo_id:
@@ -134,7 +146,9 @@ class PositionMonitor:
                         result = self.strategy.client.cancel_algo_order(symbol, algo_id)
                         if result:
                             cancelled_count += 1
-                            print(f"Cancelled orphaned {ord_type} order: {algo_id} ({inst_id} {pos_side})")
+                            print(f"✂️ Cancelled orphaned {ord_type} order: {algo_id} ({inst_id} {pos_side})")
+                        else:
+                            print(f"❌ Failed to cancel {ord_type} order: {algo_id}")
             
             if cancelled_count > 0:
                 print(f"Total orphaned orders cancelled: {cancelled_count}")
