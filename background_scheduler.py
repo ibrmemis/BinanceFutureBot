@@ -104,6 +104,19 @@ class PositionMonitor:
             if not self.strategy or not self.strategy.client.is_configured():
                 return
             
+            # Database'den aktif pozisyonların TP/SL emir ID'lerini al
+            db = SessionLocal()
+            try:
+                active_tp_sl_ids = set()
+                active_positions = db.query(Position).filter(Position.is_open == True).all()
+                for pos in active_positions:
+                    if pos.tp_order_id:
+                        active_tp_sl_ids.add(pos.tp_order_id)
+                    if pos.sl_order_id:
+                        active_tp_sl_ids.add(pos.sl_order_id)
+            finally:
+                db.close()
+            
             # TÜM emir türlerini çek (trigger, conditional, iceberg, twap)
             all_orders = self.strategy.client.get_all_open_orders()
             if not all_orders:
@@ -118,13 +131,6 @@ class PositionMonitor:
                 if pos_amt > 0:
                     position_keys.add((inst_id, pos_side))
             
-            # Build set of symbols with open positions (for trigger order protection)
-            open_symbols = set()
-            for pos in all_positions:
-                pos_amt = abs(float(pos.get('positionAmt', 0)))
-                if pos_amt > 0:
-                    open_symbols.add(pos.get('instId', ''))
-            
             cancelled_count = 0
             for order in all_orders:
                 if order.get('state') != 'live':
@@ -133,14 +139,14 @@ class PositionMonitor:
                 inst_id = order.get('instId', '')
                 pos_side = order.get('posSide', '')
                 ord_type = order.get('ordType', 'unknown')
+                algo_id = order.get('algoId')
                 
-                # SKIP trigger orders for symbols with open positions (TP/SL protection)
-                if ord_type == 'trigger' and inst_id in open_symbols:
+                # KORUMA: Database'de kayıtlı TP/SL emirlerini ATLA
+                if algo_id and algo_id in active_tp_sl_ids:
                     continue
                 
                 # Check if order is orphaned (no matching position)
                 if (inst_id, pos_side) not in position_keys:
-                    algo_id = order.get('algoId')
                     if algo_id:
                         symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '') + 'USDT'
                         result = self.strategy.client.cancel_algo_order(symbol, algo_id)
@@ -254,7 +260,22 @@ class PositionMonitor:
                             symbol=pos.symbol
                         )
                         
-                        # TP/SL emirlerini yerleştir
+                        # ESKİ TP/SL emirlerini iptal et (eğer varsa)
+                        if pos.tp_order_id:
+                            try:
+                                self.strategy.client.cancel_algo_order(pos.symbol, pos.tp_order_id)
+                                print(f"🗑️ Eski TP emri iptal edildi: {pos.tp_order_id}")
+                            except Exception as e:
+                                print(f"⚠️ Eski TP iptal edilemedi (muhtemelen zaten yok): {e}")
+                        
+                        if pos.sl_order_id:
+                            try:
+                                self.strategy.client.cancel_algo_order(pos.symbol, pos.sl_order_id)
+                                print(f"🗑️ Eski SL emri iptal edildi: {pos.sl_order_id}")
+                            except Exception as e:
+                                print(f"⚠️ Eski SL iptal edilemedi (muhtemelen zaten yok): {e}")
+                        
+                        # YENİ TP/SL emirlerini yerleştir
                         tp_order_id, sl_order_id = self.strategy.client.place_tp_sl_orders(
                             symbol=pos.symbol,
                             side=pos.side,
