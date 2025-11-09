@@ -2,12 +2,29 @@ import threading
 import time
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.executors.pool import ThreadPoolExecutor
 from database import SessionLocal, Position, Settings
 from trading_strategy import Try1Strategy
 
 class PositionMonitor:
     def __init__(self, auto_reopen_delay_minutes: int = None):
-        self.scheduler = BackgroundScheduler()
+        jobstores = {
+            'default': MemoryJobStore()
+        }
+        executors = {
+            'default': ThreadPoolExecutor(max_workers=3)
+        }
+        job_defaults = {
+            'coalesce': True,
+            'max_instances': 1,
+            'misfire_grace_time': 30
+        }
+        self.scheduler = BackgroundScheduler(
+            jobstores=jobstores,
+            executors=executors,
+            job_defaults=job_defaults
+        )
         self.strategy = None
         self.closed_positions_for_reopen = {}
         
