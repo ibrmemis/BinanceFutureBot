@@ -1147,12 +1147,11 @@ def show_settings_page():
             existing_api_secret = ""
             existing_passphrase = ""
             try:
-                from database import APICredentials
                 creds = db.query(APICredentials).first()
                 if creds:
                     existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
-            except Exception:
-                pass
+            except Exception as e:
+                st.sidebar.error(f"Kredileri yükleme hatası: {e}")
             finally:
                 db.close()
 
