@@ -1115,6 +1115,19 @@ def show_settings_page():
     if client.is_configured():
         st.success("✅ OKX API bağlantısı aktif")
         
+        # DEBUG: API Key Gösterimi
+        with st.expander("👁️ Mevcut API Bilgilerini Gör"):
+            db = SessionLocal()
+            try:
+                creds = db.query(APICredentials).first()
+                if creds:
+                    k, s, p = creds.get_credentials()
+                    st.code(f"Key: {k}\nSecret: {s}\nPassphrase: {p}", language="text")
+                else:
+                    st.warning("Veritabanında kayıtlı anahtar bulunamadı (Environment variables kullanılıyor olabilir).")
+            finally:
+                db.close()
+        
         col1, col2 = st.columns(2)
         
         with col1:
