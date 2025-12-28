@@ -487,7 +487,7 @@ def show_new_trade_page():
                 with col0:
                     # Checkbox for selecting position
                     is_selected = st.checkbox(
-                        "",
+                        "Seç",
                         value=pos.id in st.session_state.selected_positions,
                         key=f"select_{pos.id}",
                         label_visibility="collapsed"
