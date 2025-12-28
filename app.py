@@ -1141,9 +1141,24 @@ def show_settings_page():
         st.error("❌ API bağlantısı kurulamadı")
         
         with st.expander("🔧 API Anahtarlarını Güncelle"):
-            api_key_input = st.text_input("API Key", type="password", key="settings_api_key")
-            api_secret_input = st.text_input("API Secret", type="password", key="settings_api_secret")
-            passphrase_input = st.text_input("Passphrase", type="password", key="settings_passphrase")
+            # Mevcut anahtarları veritabanından çek
+            db = SessionLocal()
+            existing_api_key = ""
+            existing_api_secret = ""
+            existing_passphrase = ""
+            try:
+                from database import APICredentials
+                creds = db.query(APICredentials).first()
+                if creds:
+                    existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+            api_key_input = st.text_input("API Key", value=existing_api_key, type="password", key="settings_api_key")
+            api_secret_input = st.text_input("API Secret", value=existing_api_secret, type="password", key="settings_api_secret")
+            passphrase_input = st.text_input("Passphrase", value=existing_passphrase, type="password", key="settings_passphrase")
             
             if st.button("Kaydet ve Bağlan"):
                 if api_key_input and api_secret_input and passphrase_input:
