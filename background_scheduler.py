@@ -1,6 +1,6 @@
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -56,7 +56,7 @@ class PositionMonitor:
             setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
             if setting:
                 setting.value = str(minutes)
-                setting.updated_at = datetime.utcnow()
+                setting.updated_at = datetime.now(timezone.utc)
             else:
                 setting = Settings(key="auto_reopen_delay_minutes", value=str(minutes))
                 db.add(setting)
@@ -106,7 +106,7 @@ class PositionMonitor:
                     
                     # If position is marked OPEN in database but CLOSED on OKX, queue it for reopen
                     if not is_open_on_okx:
-                        self.closed_positions_for_reopen[pos.id] = datetime.utcnow()
+                        self.closed_positions_for_reopen[pos.id] = datetime.now(timezone.utc)
                         print(f"🔴 Pozisyon OKX'te manuel kapatılmış - queue'ya eklendi: {pos.symbol} {pos.side}")
                 
             finally:
@@ -189,7 +189,7 @@ class PositionMonitor:
             try:
                 positions_to_reopen = []
                 positions_to_remove = []
-                current_time = datetime.utcnow()
+                current_time = datetime.now(timezone.utc)
                 
                 for pos_id, closed_time in list(self.closed_positions_for_reopen.items()):
                     if current_time >= closed_time + timedelta(minutes=self.auto_reopen_delay_minutes):
@@ -310,7 +310,7 @@ class PositionMonitor:
                         pos.tp_order_id = tp_order_id
                         pos.sl_order_id = sl_order_id
                         pos.is_open = True
-                        pos.opened_at = datetime.utcnow()
+                        pos.opened_at = datetime.now(timezone.utc)
                         pos.closed_at = None
                         pos.pnl = None
                         pos.close_reason = None
@@ -343,7 +343,7 @@ class PositionMonitor:
                 self.scheduler.add_job(
                     self.check_positions,
                     'interval',
-                    minutes=1,
+                    seconds=30,
                     id='position_checker',
                     replace_existing=True
                 )

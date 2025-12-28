@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from okx_client import OKXTestnetClient
 from database import SessionLocal, Position
 
@@ -221,7 +221,7 @@ class Try1Strategy:
         db = SessionLocal()
         try:
             from datetime import timedelta
-            grace_period_cutoff = datetime.utcnow() - timedelta(seconds=120)
+            grace_period_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
             
             # Only check positions older than 120 seconds (grace period for new positions - OKX needs time to update)
             # AND only positions that have a position_id (meaning they were actually opened on OKX)
@@ -264,7 +264,7 @@ class Try1Strategy:
                 if okx_pos_amt == 0:
                     db.query(Position).filter(Position.id == pos.id).update({
                         'is_open': False,
-                        'closed_at': datetime.utcnow()
+                        'closed_at': datetime.now(timezone.utc)
                     })
                     db.flush()
                     

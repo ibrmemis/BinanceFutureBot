@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import cast
 from database import init_db, SessionLocal, Position, APICredentials, Settings
 from okx_client import OKXTestnetClient
@@ -441,7 +441,7 @@ def show_new_trade_page():
                 if st.button("⚫ Tümünü Kapat", width="stretch", help="Tüm pozisyonları kapalı duruma getirir"):
                     for pos in all_positions:
                         setattr(pos, 'is_open', False)
-                        setattr(pos, 'closed_at', datetime.utcnow())
+                        setattr(pos, 'closed_at', datetime.now(timezone.utc))
                     db.commit()
                     st.success("✅ Tüm pozisyonlar kapalı duruma getirildi!")
                     st.rerun()
@@ -469,7 +469,7 @@ def show_new_trade_page():
                         for pos in all_positions:
                             if pos.id in st.session_state.selected_positions:
                                 setattr(pos, 'is_open', False)
-                                setattr(pos, 'closed_at', datetime.utcnow())
+                                setattr(pos, 'closed_at', datetime.now(timezone.utc))
                         db.commit()
                         st.session_state.selected_positions = set()
                         st.success(f"✅ {selected_count} pozisyon kapalı duruma getirildi!")
@@ -513,7 +513,7 @@ def show_new_trade_page():
                         from datetime import timedelta
                         closed_time = monitor.closed_positions_for_reopen[pos.id]
                         reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
-                        remaining = reopen_time - datetime.utcnow()
+                        remaining = reopen_time - datetime.now(timezone.utc)
                         
                         if remaining.total_seconds() > 0:
                             total_seconds = int(remaining.total_seconds())
@@ -559,7 +559,7 @@ def show_new_trade_page():
                     if bool(pos.is_open):
                         if st.button("⚫", key=f"close_{pos.id}", help="Kapat", width="stretch"):
                             setattr(pos, 'is_open', False)
-                            setattr(pos, 'closed_at', datetime.utcnow())
+                            setattr(pos, 'closed_at', datetime.now(timezone.utc))
                             db.commit()
                             st.rerun()
                     else:
