@@ -192,7 +192,7 @@ def show_database_page():
                 data.append(row)
             
             df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
             
             st.write(f"Toplam Kayıt: **{len(records)}**")
             
