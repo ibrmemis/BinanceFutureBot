@@ -136,7 +136,7 @@ def main():
                     st.warning("Lütfen tüm alanları doldurun.")
         return
     
-    tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📋 Emirler", "📈 Geçmiş İşlemler", "⚙️ Ayarlar"])
+    tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📋 Emirler", "📈 Geçmiş İşlemler", "⚙️ Ayarlar", "💾 Database"])
     
     with tabs[0]:
         show_new_trade_page()
@@ -152,6 +152,58 @@ def main():
     
     with tabs[4]:
         show_settings_page()
+    
+    with tabs[5]:
+        show_database_page()
+
+def show_database_page():
+    st.header("💾 Veritabanı Görüntüleyici")
+    st.caption("Sistemdeki tüm tabloları ve verileri buradan inceleyebilirsiniz.")
+    
+    db = SessionLocal()
+    try:
+        # Tables to display
+        tables = {
+            "Positions (Pozisyonlar)": Position,
+            "API Credentials (API Bilgileri)": APICredentials,
+            "Settings (Ayarlar)": Settings
+        }
+        
+        selected_table_name = st.selectbox("Görüntülemek istediğiniz tabloyu seçin:", list(tables.keys()))
+        model_class = tables[selected_table_name]
+        
+        # Query all records from the selected table
+        records = db.query(model_class).all()
+        
+        if not records:
+            st.info(f"{selected_table_name} tablosunda henüz veri bulunmuyor.")
+        else:
+            # Convert to list of dictionaries for DataFrame
+            data = []
+            for record in records:
+                row = {}
+                for column in record.__table__.columns:
+                    val = getattr(record, column.name)
+                    # Mask sensitive fields if it's the credentials table
+                    if model_class == APICredentials and column.name in ['api_key_encrypted', 'api_secret_encrypted', 'passphrase_encrypted']:
+                        row[column.name] = "******** (Şifreli)"
+                    else:
+                        row[column.name] = val
+                data.append(row)
+            
+            df = pd.DataFrame(data)
+            st.dataframe(df, use_container_width=True)
+            
+            st.write(f"Toplam Kayıt: **{len(records)}**")
+            
+            # Refresh button
+            if st.button("🔄 Verileri Yenile"):
+                st.rerun()
+                
+    except Exception as e:
+        st.error(f"Veritabanı okuma hatası: {e}")
+    finally:
+        db.close()
 
 def show_new_trade_page():
     st.header("🎯 Yeni İşlem Aç - try1 Stratejisi")
