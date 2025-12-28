@@ -1152,44 +1152,47 @@ def show_settings_page():
                 db.close()
     else:
         st.error("❌ API bağlantısı kurulamadı")
-        
-        with st.expander("🔧 API Anahtarlarını Güncelle"):
-            # Mevcut anahtarları veritabanından çek
-            db = SessionLocal()
-            existing_api_key = ""
-            existing_api_secret = ""
-            existing_passphrase = ""
-            try:
-                creds = db.query(APICredentials).first()
-                if creds:
-                    existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
-            except Exception as e:
-                st.sidebar.error(f"Kredileri yükleme hatası: {e}")
-            finally:
-                db.close()
+    
+    # API Anahtarlarını Güncelleme/Düzeltme Bölümü (Her zaman görünür)
+    with st.expander("🔧 API Anahtarlarını Güncelle / Düzelt"):
+        # Mevcut anahtarları veritabanından çek
+        db = SessionLocal()
+        existing_api_key = ""
+        existing_api_secret = ""
+        existing_passphrase = ""
+        try:
+            creds = db.query(APICredentials).first()
+            if creds:
+                existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
+        except Exception:
+            pass
+        finally:
+            db.close()
 
-            api_key_input = st.text_input("API Key", value=existing_api_key, type="password", key="settings_api_key")
-            api_secret_input = st.text_input("API Secret", value=existing_api_secret, type="password", key="settings_api_secret")
-            passphrase_input = st.text_input("Passphrase", value=existing_passphrase, type="password", key="settings_passphrase")
-            
-            if st.button("Kaydet ve Bağlan"):
-                if api_key_input and api_secret_input and passphrase_input:
-                    db = SessionLocal()
-                    try:
-                        creds = db.query(APICredentials).first()
-                        if creds:
-                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                        else:
-                            creds = APICredentials()
-                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                            db.add(creds)
-                        db.commit()
-                        st.success("✅ API anahtarları kaydedildi! Sayfa yenileniyor...")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Hata: {e}")
-                    finally:
-                        db.close()
+        api_key_input = st.text_input("API Key", value=existing_api_key, type="password", key="settings_api_key")
+        api_secret_input = st.text_input("API Secret", value=existing_api_secret, type="password", key="settings_api_secret")
+        passphrase_input = st.text_input("Passphrase", value=existing_passphrase, type="password", key="settings_passphrase")
+        
+        if st.button("Kaydet ve Bağlan"):
+            if api_key_input and api_secret_input and passphrase_input:
+                db = SessionLocal()
+                try:
+                    creds = db.query(APICredentials).first()
+                    if creds:
+                        creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
+                    else:
+                        creds = APICredentials()
+                        creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
+                        db.add(creds)
+                    db.commit()
+                    st.success("✅ API anahtarları güncellendi! Sayfa yenileniyor...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Hata: {e}")
+                finally:
+                    db.close()
+            else:
+                st.warning("Lütfen tüm alanları doldurun.")
     
     st.divider()
     
