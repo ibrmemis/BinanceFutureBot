@@ -702,40 +702,20 @@ def show_active_positions_page():
                 pos_id = okx_pos.get('posId', 'N/A')
                 
                 current_price = client.get_symbol_price(symbol)
-                notional_usd = float(okx_pos.get('notionalUsd', 0))
+                # notionalUsd API'den string olarak gelebilir, float'a güvenli çevir
+                try:
+                    notional_usd = float(okx_pos.get('notionalUsd', 0))
+                except (ValueError, TypeError):
+                    notional_usd = 0.0
                 
-                tp_price = None
-                sl_price = None
-                db_position = db.query(Position).filter(Position.position_id == pos_id).first()
-                if db_position and position_amt > 0 and db_position.tp_usdt and db_position.sl_usdt:
-                    contract_value = client.get_contract_value(symbol)
-                    crypto_amount = position_amt * contract_value
-                    
-                    price_change_tp = db_position.tp_usdt / crypto_amount
-                    price_change_sl = db_position.sl_usdt / crypto_amount
-                    
-                    if side == "LONG":
-                        tp_price = entry_price + price_change_tp
-                        sl_price = entry_price - price_change_sl
-                    else:
-                        tp_price = entry_price - price_change_tp
-                        sl_price = entry_price + price_change_sl
-                
-                direction_icon = "🟢" if side == "LONG" else "🔴"
-                pnl_icon = "🟢" if unrealized_pnl >= 0 else "🔴"
-                
-                table_data.append({
-                    "Coin": symbol,
-                    "Yön": f"{direction_icon} {side}",
-                    "Kaldıraç": f"{leverage}x",
-                    "Büyüklük (USDT)": f"${notional_usd:.2f}",
-                    "Giriş": f"${entry_price:.4f}",
-                    "Şu an": f"${current_price:.4f}" if current_price else "N/A",
-                    "PnL": f"{pnl_icon} ${unrealized_pnl:.2f}",
-                    "TP Hedef": f"${tp_price:.4f}" if tp_price else "N/A",
-                    "SL Hedef": f"${sl_price:.4f}" if sl_price else "N/A",
-                    "PosID": pos_id
-                })
+                # Eğer notionalUsd 0 ise alternatif olarak positionAmt * markPrice hesapla
+                if notional_usd == 0 and position_amt > 0:
+                    try:
+                        mark_price = float(okx_pos.get('markPrice', okx_pos.get('last', current_price or 0)))
+                        contract_val = client.get_contract_value(symbol)
+                        notional_usd = position_amt * contract_val * mark_price
+                    except:
+                        pass
             
             df = pd.DataFrame(table_data)
             st.dataframe(df, width="stretch", hide_index=True)

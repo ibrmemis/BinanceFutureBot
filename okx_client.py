@@ -454,6 +454,8 @@ class OKXTestnetClient:
                             'posSide': pos.get('posSide'),
                             'positionAmt': pos.get('pos', '0'),
                             'entryPrice': pos.get('avgPx', '0'),
+                            'markPrice': pos.get('markPx', '0'),
+                            'notionalUsd': pos.get('notionalUsd', '0'),
                             'unrealizedProfit': pos.get('upl', '0'),
                             'leverage': pos.get('lever', '1'),
                             'posId': pos.get('posId', None)
