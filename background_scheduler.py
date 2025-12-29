@@ -75,6 +75,7 @@ class PositionMonitor:
         
     def check_positions(self):
         try:
+            print("LOG: Pozisyonlar kontrol ediliyor...")
             self._ensure_strategy()
             if not self.strategy or not self.strategy.client.is_configured():
                 return
@@ -181,6 +182,8 @@ class PositionMonitor:
     
     def reopen_closed_positions(self):
         try:
+            if self.closed_positions_for_reopen:
+                print(f"LOG: Yeniden açılmayı bekleyen {len(self.closed_positions_for_reopen)} pozisyon var.")
             self._ensure_strategy()
             if not self.strategy or not self.strategy.client.is_configured():
                 return

@@ -69,6 +69,7 @@ class Try1Strategy:
         parent_position_id: int | None = None,
         save_to_db: bool = True
     ) -> tuple[bool, str, int | None]:
+        print(f"LOG: {symbol} için {side} pozisyonu açılıyor... Büyüklük: {amount_usdt} USDT, Kaldıraç: {leverage}x")
         if not self.client.is_configured():
             return False, "OKX API anahtarları yapılandırılmamış", None
         
@@ -93,9 +94,11 @@ class Try1Strategy:
         )
         
         if not order:
+            print(f"LOG: {symbol} emri AÇILAMADI.")
             return False, "Emir açılamadı", None
         
         entry_price = current_price
+        print(f"LOG: {symbol} emri başarıyla açıldı. Giriş Fiyatı: ${entry_price:.4f}")
         
         import time
         time.sleep(2)
