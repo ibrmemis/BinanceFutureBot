@@ -702,6 +702,7 @@ def show_active_positions_page():
                 pos_id = okx_pos.get('posId', 'N/A')
                 
                 current_price = client.get_symbol_price(symbol)
+                notional_usd = float(okx_pos.get('notionalUsd', 0))
                 
                 tp_price = None
                 sl_price = None
@@ -727,7 +728,7 @@ def show_active_positions_page():
                     "Coin": symbol,
                     "Yön": f"{direction_icon} {side}",
                     "Kaldıraç": f"{leverage}x",
-                    "Kontrat": int(position_amt),
+                    "Büyüklük (USDT)": f"${notional_usd:.2f}",
                     "Giriş": f"${entry_price:.4f}",
                     "Şu an": f"${current_price:.4f}" if current_price else "N/A",
                     "PnL": f"{pnl_icon} ${unrealized_pnl:.2f}",
