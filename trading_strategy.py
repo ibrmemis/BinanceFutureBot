@@ -317,12 +317,10 @@ class Try1Strategy:
                 position_side=position_side
             )
             
-            # Step 7: Update database record
-            old_amount = float(pos.amount_usdt)
-            new_total_amount = old_amount + add_amount_usdt
+            # Step 7: Update database record (amount_usdt stays unchanged - user preference)
+            original_amount = float(pos.amount_usdt)
             
-            # Update position fields
-            pos.amount_usdt = new_total_amount
+            # Update position fields (NOT updating amount_usdt - keeping original value)
             pos.entry_price = new_entry_price
             pos.quantity = new_quantity
             pos.position_id = new_pos_id
@@ -338,7 +336,7 @@ class Try1Strategy:
             
             db.commit()
             
-            msg = f"✅ RECOVERY #{current_recovery_count + 1} tamamlandı: {symbol} {side} | Eski miktar: ${old_amount:.2f} → Yeni miktar: ${new_total_amount:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
+            msg = f"✅ RECOVERY #{current_recovery_count + 1} tamamlandı: {symbol} {side} | Başlangıç miktar: ${original_amount:.2f} (değişmedi) | Eklenen: ${add_amount_usdt:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
             print(msg)
             
             return True, msg
