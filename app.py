@@ -392,7 +392,7 @@ def show_new_trade_page():
                 col_bulk1, col_bulk2, col_bulk3 = st.columns(3)
                 
                 with col_bulk1:
-                    if st.button("🟢 Tümünü Aç", use_container_width=True):
+                    if st.button("🟢 Tümünü Aç", use_container_width=True, key="bulk_open_all"):
                         for pos in all_positions:
                             setattr(pos, 'is_open', True)
                             setattr(pos, 'closed_at', None)
@@ -400,7 +400,7 @@ def show_new_trade_page():
                         st.rerun()
                 
                 with col_bulk2:
-                    if st.button("⚫ Tümünü Kapat", use_container_width=True):
+                    if st.button("⚫ Tümünü Kapat", use_container_width=True, key="bulk_close_all"):
                         for pos in all_positions:
                             setattr(pos, 'is_open', False)
                             setattr(pos, 'closed_at', datetime.now(timezone.utc))
@@ -408,7 +408,7 @@ def show_new_trade_page():
                         st.rerun()
                 
                 with col_bulk3:
-                    if st.button("🔄 Yenile", use_container_width=True):
+                    if st.button("🔄 Yenile", use_container_width=True, key="bulk_refresh"):
                         st.rerun()
                 
                 from background_scheduler import get_monitor
