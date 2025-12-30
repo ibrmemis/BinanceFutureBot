@@ -30,7 +30,8 @@ Preferred communication style: Simple, everyday language.
 - **Core Components**:
   - **OKXTestnetClient**: Wrapper around python-okx library for interacting with OKX V5 API with demo trading flag
   - **Try1Strategy**: Trading strategy implementation that manages position entry/exit logic with take-profit and stop-loss monitoring
-  - **PositionMonitor**: Background scheduler that periodically checks positions every 1 minute and handles automatic reopening of closed positions after 5 minutes
+  - **PositionMonitor**: Background scheduler that periodically checks positions every 1 minute, handles automatic reopening of closed positions after configurable delay, and monitors for recovery triggers
+  - **Recovery System**: Automatic position recovery when PNL drops below threshold - cancels existing orders, adds to position, recalculates TP/SL
   - **Database Layer**: SQLAlchemy ORM for persistence
 
 - **Design Pattern**: Separation of concerns with distinct modules for API communication, trading logic, database operations, and background tasks
@@ -47,6 +48,8 @@ Preferred communication style: Simple, everyday language.
     - **Open/Closed Status**: Position status is determined by checking if the `posId` exists in OKX and has non-zero position amount
     - **Infinite Reopen**: When a position closes, the SAME database record is updated and reopened (no new record created)
     - **parent_position_id**: Field exists for historical data but no longer used (positions update in place)
+    - **recovery_count**: Tracks how many times recovery was triggered for this position
+    - **last_recovery_at**: Timestamp of the last recovery execution
 
 - **Database vs OKX**:
   - **New Trade Page**: Shows positions from database (all positions)
@@ -93,6 +96,28 @@ Preferred communication style: Simple, everyday language.
   - **Retry Logic**: API/network failures keep position in reopen queue, retry every 30 sec until success
   - **User Requested**: Explicitly requested unlimited reopen with UPDATE instead of INSERT
 - **Rationale**: Background scheduling decouples monitoring from user interaction, enabling autonomous operation while the Streamlit interface remains responsive. Manual start prevents unwanted background activity on deployment restarts. Infinite reopen enables continuous trading without manual intervention.
+
+### Recovery System (Added Dec 2025)
+- **Purpose**: Automatically recover losing positions by adding to them and recalculating TP/SL
+- **Trigger**: When a position's unrealized PNL drops below configurable threshold (default -50 USDT)
+- **Recovery Process**:
+  1. Cancel all existing TP/SL orders for the position
+  2. Add to the position with configurable amount (default 100 USDT)
+  3. Calculate new TP/SL prices based on the updated total position size
+  4. Place new TP/SL orders
+  5. Update database with new position details and increment recovery_count
+- **Configurable Settings** (via Settings page):
+  - `recovery_enabled`: Enable/disable the feature
+  - `recovery_trigger_pnl`: PNL threshold that triggers recovery (default -50 USDT)
+  - `recovery_add_amount`: Amount to add when recovery triggers (default 100 USDT)
+  - `recovery_tp_usdt`: New TP target after recovery (default 50 USDT)
+  - `recovery_sl_usdt`: New SL limit after recovery (default 100 USDT)
+- **Safety Features**:
+  - Validates position exists on OKX before proceeding
+  - Prevents duplicate triggers with `positions_in_recovery` set
+  - Clears recovery set on exception to allow retries
+  - Tracks recovery count per position for monitoring
+- **Scheduler Job**: Runs every 15 seconds to check for positions needing recovery
 
 ## External Dependencies
 
