@@ -206,176 +206,95 @@ def show_database_page():
         db.close()
 
 def show_new_trade_page():
-    st.header("🎯 Yeni İşlem Aç - try1 Stratejisi")
+    st.header("🎯 Yeni İşlem Aç")
     
-    # Get all available SWAP symbols from OKX
     client = OKXTestnetClient()
     all_symbols = client.get_all_swap_symbols()
     
-    # Put popular coins first
     popular_coins = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
     other_coins = [s for s in all_symbols if s not in popular_coins]
     ordered_symbols = popular_coins + other_coins
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        symbol = st.selectbox(
-            "Coin Çifti",
-            ordered_symbols,
-            help=f"Toplam {len(all_symbols)} farklı SWAP çifti mevcut"
-        )
+    with st.container(border=True):
+        col1, col2, col3 = st.columns(3)
         
-        amount_usdt = st.number_input(
-            "Pozisyon Değeri (USDT)",
-            min_value=1.0,
-            value=1111.0,
-            step=10.0,
-            help="Toplam pozisyon büyüklüğü (örn: 1000 USDT)"
-        )
+        with col1:
+            symbol = st.selectbox("Coin", ordered_symbols, help=f"{len(all_symbols)} çift mevcut")
+            current_price = client.get_symbol_price(symbol)
+            if current_price:
+                st.caption(f"Fiyat: **${current_price:,.2f}**")
         
-        leverage = st.number_input(
-            "Kaldıraç",
-            min_value=1,
-            max_value=125,
-            value=20,
-            step=1
-        )
+        with col2:
+            side = st.selectbox("Yön", ["LONG", "SHORT"])
+            side_emoji = "🟢" if side == "LONG" else "🔴"
+            st.caption(f"{side_emoji} {side}")
         
-        # Calculate real position value using correct contract specifications
-        client = OKXTestnetClient()
-        current_price = client.get_symbol_price(symbol)
+        with col3:
+            leverage = st.number_input("Kaldıraç", min_value=1, max_value=125, value=20, step=1)
+        
+        col4, col5, col6 = st.columns(3)
+        
+        with col4:
+            amount_usdt = st.number_input("Pozisyon (USDT)", min_value=1.0, value=1111.0, step=10.0)
+        
+        with col5:
+            tp_usdt = st.number_input("TP (USDT)", min_value=0.1, value=5.0, step=1.0, help="Kar hedefi")
+        
+        with col6:
+            sl_usdt = st.number_input("SL (USDT)", min_value=0.1, value=115.0, step=1.0, help="Zarar limiti")
+        
         if current_price:
-            # Get contract value (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
             contract_value = client.get_contract_value(symbol)
             contract_usdt_value = contract_value * current_price
-            
-            # Calculate exact contracts and round to 2 decimals
             exact_contracts = amount_usdt / contract_usdt_value
             actual_contracts = max(0.01, round(exact_contracts, 2))
             actual_position_value = actual_contracts * contract_usdt_value
-            
             margin_used = actual_position_value / leverage
-            st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
-            st.caption(f"📊 Kontrat: {actual_contracts} (1 kontrat = {contract_value} {symbol[:3]} = ${contract_usdt_value:.2f})")
             
-            # Show info if actual value differs
-            diff_pct = abs(actual_position_value - amount_usdt) / amount_usdt * 100
-            if diff_pct > 5:  # >5% difference
-                st.info(f"ℹ️ **Gerçek Pozisyon Değeri: ${actual_position_value:.2f}** (Fark: {diff_pct:.1f}%)")
-        else:
-            margin_used = amount_usdt / leverage
-            st.caption(f"💰 Kullanılacak Marjin: ${margin_used:.2f} USDT")
-    
-    with col2:
-        side = st.selectbox(
-            "İşlem Yönü",
-            ["LONG", "SHORT"]
-        )
+            st.caption(f"Marjin: **${margin_used:.2f}** | Kontrat: **{actual_contracts}**")
         
-        tp_usdt = st.number_input(
-            "Take Profit (USDT - PnL)",
-            min_value=0.1,
-            value=5.0,
-            step=1.0
-        )
+        btn_col1, btn_col2 = st.columns([2, 1])
         
-        sl_usdt = st.number_input(
-            "Stop Loss (USDT - PnL)",
-            min_value=0.1,
-            value=115.0,
-            step=1.0
-        )
-    
-    st.divider()
-    
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        if st.button("🚀 Pozisyon Aç", type="primary", width="stretch"):
-            with st.spinner("Pozisyon açılıyor..."):
-                strategy = Try1Strategy()
-                success, message, position_id = strategy.open_position(
-                    symbol=symbol,
-                    side=side,
-                    amount_usdt=amount_usdt,
-                    leverage=leverage,
-                    tp_usdt=tp_usdt,
-                    sl_usdt=sl_usdt
-                )
-                
-                if success:
-                    st.success(f"✅ {message}")
-                    st.balloons()
-                else:
-                    st.error(f"❌ {message}")
-    
-    with col2:
-        if st.button("💾 Pozisyonu Kaydet", width="stretch", help="OKX'de işlem yapmadan sadece database'e kaydet"):
-            # Save position to database without opening on OKX
-            db = SessionLocal()
-            try:
-                current_price = client.get_symbol_price(symbol)
-                if not current_price:
-                    st.error("Fiyat alınamadı")
-                else:
-                    position_side = "long" if side == "LONG" else "short"
-                    
-                    position = Position(
-                        symbol=symbol,
-                        side=side,
-                        amount_usdt=amount_usdt,
-                        leverage=leverage,
-                        tp_usdt=tp_usdt,
-                        sl_usdt=sl_usdt,
-                        entry_price=current_price,
-                        quantity=0.0,  # Will be calculated when actually opened
-                        order_id=None,
-                        position_id=None,
-                        position_side=position_side,
-                        tp_order_id=None,
-                        sl_order_id=None,
-                        is_open=True,
-                        parent_position_id=None
+        with btn_col1:
+            if st.button("🚀 Pozisyon Aç", type="primary", use_container_width=True):
+                with st.spinner("Açılıyor..."):
+                    strategy = Try1Strategy()
+                    success, message, position_id = strategy.open_position(
+                        symbol=symbol, side=side, amount_usdt=amount_usdt,
+                        leverage=leverage, tp_usdt=tp_usdt, sl_usdt=sl_usdt
                     )
-                    db.add(position)
-                    db.commit()
-                    db.refresh(position)
-                    st.success(f"✅ Pozisyon database'e kaydedildi! (ID: {position.id})")
-                    st.info("⚠️ Bu pozisyon OKX'de açılmadı. Bot bu pozisyonu monitör edecek ve auto-reopen yapacak.")
-            except Exception as e:
-                db.rollback()
-                st.error(f"❌ Kaydetme hatası: {e}")
-            finally:
-                db.close()
-    
-    with col3:
-        if st.button("🔄 Mevcut Fiyat", width="stretch"):
-            price = client.get_symbol_price(symbol)
-            if price:
-                st.info(f"{symbol}: ${price:,.2f}")
-            else:
-                st.error("Fiyat alınamadı")
-    
-    st.divider()
-    
-    with st.expander("ℹ️ try1 Stratejisi Hakkında"):
-        st.markdown("""
-        **try1 Stratejisi Özellikleri:**
+                    if success:
+                        st.success(f"✅ {message}")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ {message}")
         
-        - ✅ Cross Margin modunda işlem
-        - ✅ Market emri ile anında açılış
-        - ✅ Pozisyon Değeri: Toplam pozisyon büyüklüğü (örn: 1000 USDT)
-        - ✅ Marjin: Pozisyon Değeri / Kaldıraç (örn: 1000 / 10 = 100 USDT marjin kullanılır)
-        - ✅ TP ve SL USDT cinsinden PnL değeri olarak belirlenir
-        - ✅ Long/Short mode aktif (LONG ve SHORT ayrı pozisyonlar olarak açılabilir)
-        - ✅ Pozisyon kapandığında **5 dakika sonra** otomatik olarak aynı parametrelerle yeniden açılır
-        - ✅ Her 1 dakikada pozisyonlar kontrol edilir
-        - ✅ Yeni işlem açılmadan önce eski işlemin kapanması beklenir
-        """)
+        with btn_col2:
+            with st.popover("Diğer"):
+                if st.button("💾 Sadece Kaydet", use_container_width=True, help="OKX'de açmadan kaydet"):
+                    db = SessionLocal()
+                    try:
+                        if not current_price:
+                            st.error("Fiyat alınamadı")
+                        else:
+                            position_side = "long" if side == "LONG" else "short"
+                            position = Position(
+                                symbol=symbol, side=side, amount_usdt=amount_usdt,
+                                leverage=leverage, tp_usdt=tp_usdt, sl_usdt=sl_usdt,
+                                entry_price=current_price, quantity=0.0, order_id=None,
+                                position_id=None, position_side=position_side,
+                                tp_order_id=None, sl_order_id=None, is_open=True, parent_position_id=None
+                            )
+                            db.add(position)
+                            db.commit()
+                            st.success(f"✅ Kaydedildi (ID: {position.id})")
+                    except Exception as e:
+                        db.rollback()
+                        st.error(f"❌ Hata: {e}")
+                    finally:
+                        db.close()
     
-    st.divider()
-    st.subheader("📋 Strateji ile Oluşturulmuş Pozisyonlar")
+    st.subheader("📋 Pozisyonlar")
     
     client = OKXTestnetClient()
     
@@ -467,157 +386,69 @@ def show_new_trade_page():
                 }
             )
             
-            st.divider()
-            st.subheader("🔧 Pozisyon Kontrolü - Aç/Kapat")
-            st.caption("Her pozisyonun durumunu değiştirerek bot'un auto-reopen davranışını kontrol edin")
-            
-            # Initialize session state for selected positions
-            if 'selected_positions' not in st.session_state:
-                st.session_state.selected_positions = set()
-            
-            # Toplu işlem butonları
-            col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns([1, 1, 1, 3])
-            
-            with col_bulk1:
-                if st.button("🟢 Tümünü Aç", width="stretch", help="Tüm pozisyonları açık duruma getirir"):
-                    for pos in all_positions:
-                        setattr(pos, 'is_open', True)
-                        setattr(pos, 'closed_at', None)
-                    db.commit()
-                    st.success("✅ Tüm pozisyonlar açık duruma getirildi!")
-                    st.rerun()
-            
-            with col_bulk2:
-                if st.button("⚫ Tümünü Kapat", width="stretch", help="Tüm pozisyonları kapalı duruma getirir"):
-                    for pos in all_positions:
-                        setattr(pos, 'is_open', False)
-                        setattr(pos, 'closed_at', datetime.now(timezone.utc))
-                    db.commit()
-                    st.success("✅ Tüm pozisyonlar kapalı duruma getirildi!")
-                    st.rerun()
-            
-            # Seçili pozisyonlar için toplu işlem
-            selected_count = len(st.session_state.selected_positions)
-            
-            with col_bulk3:
-                if selected_count > 0:
-                    if st.button(f"✅ Seçilileri Aç ({selected_count})", width="stretch", help="Seçili pozisyonları açık duruma getirir"):
+            with st.expander("🔧 Pozisyon Kontrolü", expanded=False):
+                st.caption("Bot'un auto-reopen davranışını kontrol edin")
+                
+                col_bulk1, col_bulk2, col_bulk3 = st.columns(3)
+                
+                with col_bulk1:
+                    if st.button("🟢 Tümünü Aç", use_container_width=True):
                         for pos in all_positions:
-                            if pos.id in st.session_state.selected_positions:
-                                setattr(pos, 'is_open', True)
-                                setattr(pos, 'closed_at', None)
-                        db.commit()
-                        st.session_state.selected_positions = set()
-                        st.success(f"✅ {selected_count} pozisyon açık duruma getirildi!")
-                        st.rerun()
-                else:
-                    st.caption("↓ Seçim yapın")
-            
-            with col_bulk4:
-                if selected_count > 0:
-                    if st.button(f"❌ Seçilileri Kapat ({selected_count})", width="stretch", help="Seçili pozisyonları kapalı duruma getirir"):
-                        for pos in all_positions:
-                            if pos.id in st.session_state.selected_positions:
-                                setattr(pos, 'is_open', False)
-                                setattr(pos, 'closed_at', datetime.now(timezone.utc))
-                        db.commit()
-                        st.session_state.selected_positions = set()
-                        st.success(f"✅ {selected_count} pozisyon kapalı duruma getirildi!")
-                        st.rerun()
-            
-            st.divider()
-            
-            # Get monitor instance to check auto-reopen countdown
-            from background_scheduler import get_monitor
-            monitor = get_monitor()
-            
-            for pos in all_positions:
-                col0, col1, col2, col3, col4 = st.columns([0.3, 2.7, 2, 1, 1])
-                
-                with col0:
-                    # Checkbox for selecting position
-                    is_selected = st.checkbox(
-                        "Seç",
-                        value=pos.id in st.session_state.selected_positions,
-                        key=f"select_{pos.id}",
-                        label_visibility="collapsed"
-                    )
-                    if is_selected and pos.id not in st.session_state.selected_positions:
-                        st.session_state.selected_positions.add(pos.id)
-                    elif not is_selected and pos.id in st.session_state.selected_positions:
-                        st.session_state.selected_positions.remove(pos.id)
-                
-                with col1:
-                    status_icon = "🟢" if bool(pos.is_open) else "⚫"
-                    st.write(f"{status_icon} **#{pos.id} - {pos.symbol} {pos.side}**")
-                
-                with col2:
-                    # Safely format nullable fields
-                    tp_str = f"${pos.tp_usdt:.2f}" if pos.tp_usdt is not None else "—"
-                    sl_str = f"${pos.sl_usdt:.2f}" if pos.sl_usdt is not None else "—"
-                    st.caption(f"TP: {tp_str} | SL: {sl_str}")
-                
-                with col3:
-                    # Show countdown if position is in reopen queue (regardless of is_open status)
-                    if monitor and pos.id in monitor.closed_positions_for_reopen:
-                        from datetime import timedelta
-                        closed_time = monitor.closed_positions_for_reopen[pos.id]
-                        reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
-                        remaining = reopen_time - datetime.now(timezone.utc)
-                        
-                        if remaining.total_seconds() > 0:
-                            total_seconds = int(remaining.total_seconds())
-                            # JavaScript-based live countdown (no page refresh needed)
-                            import streamlit.components.v1 as components
-                            components.html(
-                                f"""
-                                <div id="countdown_{pos.id}" style="font-weight: bold; color: #FF4B4B;">
-                                    <span style="font-size: 14px;">⏱️ <span id="timer_{pos.id}">00:00</span></span>
-                                </div>
-                                <script>
-                                    let seconds = {total_seconds};
-                                    const timer = document.getElementById('timer_{pos.id}');
-                                    
-                                    function updateTimer() {{
-                                        if (seconds <= 0) {{
-                                            timer.parentElement.innerHTML = '🔄 <strong>Açılıyor...</strong>';
-                                            return;
-                                        }}
-                                        
-                                        const mins = Math.floor(seconds / 60);
-                                        const secs = seconds % 60;
-                                        timer.textContent = 
-                                            String(mins).padStart(2, '0') + ':' + 
-                                            String(secs).padStart(2, '0');
-                                        seconds--;
-                                        setTimeout(updateTimer, 1000);
-                                    }}
-                                    
-                                    updateTimer();
-                                </script>
-                                """,
-                                height=30
-                            )
-                        else:
-                            st.caption("🔄 **Açılıyor...**")
-                    elif bool(pos.is_open):
-                        st.caption(f"**AÇIK**")
-                    else:
-                        st.caption(f"**KAPALI**")
-                
-                with col4:
-                    if bool(pos.is_open):
-                        if st.button("⚫", key=f"close_{pos.id}", help="Kapat", width="stretch"):
-                            setattr(pos, 'is_open', False)
-                            setattr(pos, 'closed_at', datetime.now(timezone.utc))
-                            db.commit()
-                            st.rerun()
-                    else:
-                        if st.button("🟢", key=f"open_{pos.id}", help="Aç", width="stretch"):
                             setattr(pos, 'is_open', True)
                             setattr(pos, 'closed_at', None)
-                            db.commit()
-                            st.rerun()
+                        db.commit()
+                        st.rerun()
+                
+                with col_bulk2:
+                    if st.button("⚫ Tümünü Kapat", use_container_width=True):
+                        for pos in all_positions:
+                            setattr(pos, 'is_open', False)
+                            setattr(pos, 'closed_at', datetime.now(timezone.utc))
+                        db.commit()
+                        st.rerun()
+                
+                with col_bulk3:
+                    if st.button("🔄 Yenile", use_container_width=True):
+                        st.rerun()
+                
+                from background_scheduler import get_monitor
+                monitor = get_monitor()
+                
+                for pos in all_positions:
+                    col1, col2, col3 = st.columns([3, 1, 0.5])
+                    
+                    with col1:
+                        status_icon = "🟢" if bool(pos.is_open) else "⚫"
+                        reopen_info = ""
+                        if monitor and pos.id in monitor.closed_positions_for_reopen:
+                            from datetime import timedelta
+                            closed_time = monitor.closed_positions_for_reopen[pos.id]
+                            reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
+                            remaining = reopen_time - datetime.now(timezone.utc)
+                            if remaining.total_seconds() > 0:
+                                mins = int(remaining.total_seconds() // 60)
+                                secs = int(remaining.total_seconds() % 60)
+                                reopen_info = f" ⏱️ {mins}:{secs:02d}"
+                        st.write(f"{status_icon} #{pos.id} {pos.symbol} {pos.side}{reopen_info}")
+                    
+                    with col2:
+                        tp_str = f"${pos.tp_usdt:.0f}" if pos.tp_usdt else "—"
+                        sl_str = f"${pos.sl_usdt:.0f}" if pos.sl_usdt else "—"
+                        st.caption(f"TP:{tp_str} SL:{sl_str}")
+                    
+                    with col3:
+                        if bool(pos.is_open):
+                            if st.button("⚫", key=f"close_{pos.id}"):
+                                setattr(pos, 'is_open', False)
+                                setattr(pos, 'closed_at', datetime.now(timezone.utc))
+                                db.commit()
+                                st.rerun()
+                        else:
+                            if st.button("🟢", key=f"open_{pos.id}"):
+                                setattr(pos, 'is_open', True)
+                                setattr(pos, 'closed_at', None)
+                                db.commit()
+                                st.rerun()
     finally:
         db.close()
 
