@@ -87,6 +87,8 @@ class Position(Base):
     pnl = Column(Float, nullable=True)
     close_reason = Column(String, nullable=True)
     parent_position_id = Column(Integer, nullable=True)
+    recovery_count = Column(Integer, default=0)
+    last_recovery_at = Column(DateTime, nullable=True)
     
     def __repr__(self):
         return f"<Position {self.symbol} {self.side} ${self.amount_usdt}>"

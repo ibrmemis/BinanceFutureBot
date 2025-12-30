@@ -216,6 +216,123 @@ class Try1Strategy:
         finally:
             db.close()
     
+    def execute_recovery(
+        self,
+        position_db_id: int,
+        add_amount_usdt: float,
+        new_tp_usdt: float,
+        new_sl_usdt: float
+    ) -> tuple[bool, str]:
+        """
+        Execute recovery for a position:
+        1. Cancel all TP/SL orders for this position
+        2. Add to the position with add_amount_usdt
+        3. Set new TP/SL based on the total new position size
+        
+        Returns: (success, message)
+        """
+        db = SessionLocal()
+        try:
+            pos = db.query(Position).filter(Position.id == position_db_id).first()
+            if not pos:
+                return False, "Pozisyon bulunamadı"
+            
+            if not pos.is_open:
+                return False, "Pozisyon açık değil"
+            
+            symbol = str(pos.symbol)
+            side = str(pos.side)
+            leverage = int(pos.leverage)
+            position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
+            
+            print(f"🔄 RECOVERY başlatılıyor: {symbol} {side} | DB ID: {position_db_id}")
+            
+            # Step 1: Cancel all TP/SL orders for this position
+            cancelled_count = self.client.cancel_all_position_orders(symbol, position_side)
+            print(f"✂️ {cancelled_count} emir iptal edildi")
+            
+            # Step 2: Get current price and calculate add quantity
+            current_price = self.client.get_symbol_price(symbol)
+            if not current_price:
+                return False, "Fiyat alınamadı"
+            
+            add_quantity = self.calculate_quantity_for_usdt(add_amount_usdt, leverage, current_price, symbol)
+            if add_quantity < 0.01:
+                return False, "Ekleme miktarı çok düşük (minimum 0.01 kontrat)"
+            
+            # Step 3: Add to position
+            order_result = self.client.add_to_position(symbol, side, add_quantity, position_side)
+            if not order_result:
+                return False, "Pozisyona ekleme yapılamadı"
+            
+            print(f"➕ {add_quantity} kontrat eklendi ({add_amount_usdt} USDT)")
+            
+            import time
+            time.sleep(2)
+            
+            # Step 4: Get updated position info from OKX
+            okx_pos = self.client.get_position(symbol, position_side)
+            if not okx_pos:
+                return False, "Güncel pozisyon bilgisi alınamadı"
+            
+            new_entry_price = float(okx_pos.get('entryPrice', 0))
+            new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
+            new_pos_id = okx_pos.get('posId')
+            
+            if new_quantity == 0:
+                return False, "Pozisyon miktarı 0"
+            
+            # Step 5: Calculate new TP/SL prices based on updated position
+            tp_price, sl_price = self.calculate_tp_sl_prices(
+                entry_price=new_entry_price,
+                side=side,
+                tp_usdt=new_tp_usdt,
+                sl_usdt=new_sl_usdt,
+                quantity=new_quantity,
+                symbol=symbol
+            )
+            
+            time.sleep(1)
+            
+            # Step 6: Place new TP/SL orders
+            tp_order_id, sl_order_id = self.client.place_tp_sl_orders(
+                symbol=symbol,
+                side=side,
+                quantity=new_quantity,
+                entry_price=new_entry_price,
+                tp_price=tp_price,
+                sl_price=sl_price,
+                position_side=position_side
+            )
+            
+            # Step 7: Update database record
+            old_amount = float(pos.amount_usdt)
+            new_total_amount = old_amount + add_amount_usdt
+            
+            pos.amount_usdt = new_total_amount
+            pos.entry_price = new_entry_price
+            pos.quantity = new_quantity
+            pos.position_id = new_pos_id
+            pos.tp_usdt = new_tp_usdt
+            pos.sl_usdt = new_sl_usdt
+            pos.tp_order_id = tp_order_id
+            pos.sl_order_id = sl_order_id
+            
+            db.commit()
+            
+            msg = f"✅ RECOVERY tamamlandı: {symbol} {side} | Eski miktar: ${old_amount:.2f} → Yeni miktar: ${new_total_amount:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
+            print(msg)
+            
+            return True, msg
+            
+        except Exception as e:
+            db.rollback()
+            error_msg = f"Recovery hatası: {e}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
+        finally:
+            db.close()
+    
     def check_and_update_positions(self):
         if not self.client.is_configured():
             print("OKX client not configured")

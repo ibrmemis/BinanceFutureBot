@@ -27,6 +27,7 @@ class PositionMonitor:
         )
         self.strategy = None
         self.closed_positions_for_reopen = {}
+        self.positions_in_recovery = set()
         
         # Load auto_reopen_delay from database or use provided value
         if auto_reopen_delay_minutes is None:
@@ -46,6 +47,36 @@ class PositionMonitor:
                 # Default to 1 minute and save it
                 self._save_auto_reopen_delay(1)
                 return 1
+        finally:
+            db.close()
+    
+    def _load_recovery_settings(self) -> dict:
+        """Load recovery settings from database"""
+        db = SessionLocal()
+        try:
+            settings = {}
+            
+            # Recovery enabled
+            enabled = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
+            settings['enabled'] = enabled.value.lower() == 'true' if enabled else False
+            
+            # Trigger PNL (negative USDT value that triggers recovery)
+            trigger = db.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
+            settings['trigger_pnl'] = float(trigger.value) if trigger else -50.0
+            
+            # Add amount (USDT to add when recovery triggers)
+            add_amount = db.query(Settings).filter(Settings.key == "recovery_add_amount").first()
+            settings['add_amount'] = float(add_amount.value) if add_amount else 100.0
+            
+            # New TP (USDT)
+            tp = db.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
+            settings['tp_usdt'] = float(tp.value) if tp else 50.0
+            
+            # New SL (USDT)
+            sl = db.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
+            settings['sl_usdt'] = float(sl.value) if sl else 100.0
+            
+            return settings
         finally:
             db.close()
     
@@ -73,6 +104,86 @@ class PositionMonitor:
         elif not self.strategy.client.is_configured():
             self.strategy = Try1Strategy()
         
+    def check_recovery(self):
+        """Check positions for recovery trigger (PNL drops below threshold)"""
+        try:
+            recovery_settings = self._load_recovery_settings()
+            
+            if not recovery_settings.get('enabled', False):
+                return
+            
+            self._ensure_strategy()
+            if not self.strategy or not self.strategy.client.is_configured():
+                return
+            
+            trigger_pnl = recovery_settings.get('trigger_pnl', -50.0)
+            add_amount = recovery_settings.get('add_amount', 100.0)
+            tp_usdt = recovery_settings.get('tp_usdt', 50.0)
+            sl_usdt = recovery_settings.get('sl_usdt', 100.0)
+            
+            db = SessionLocal()
+            try:
+                # Get all open positions from database
+                open_positions = db.query(Position).filter(Position.is_open == True).all()
+                
+                for pos in open_positions:
+                    pos_id = pos.id
+                    
+                    # Skip if already in recovery process
+                    if pos_id in self.positions_in_recovery:
+                        continue
+                    
+                    # Get current position from OKX
+                    position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                    okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
+                    
+                    if not okx_pos:
+                        continue
+                    
+                    pos_amt = abs(float(okx_pos.get('positionAmt', 0)))
+                    if pos_amt == 0:
+                        continue
+                    
+                    # Get unrealized PNL
+                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                    
+                    # Check if PNL dropped below trigger
+                    if unrealized_pnl <= trigger_pnl:
+                        print(f"🚨 RECOVERY TETİKLENDİ: {pos.symbol} {pos.side} | PNL: ${unrealized_pnl:.2f} <= ${trigger_pnl:.2f}")
+                        
+                        # Mark as in recovery to prevent duplicate triggers
+                        self.positions_in_recovery.add(pos_id)
+                        
+                        try:
+                            # Execute recovery
+                            success, message = self.strategy.execute_recovery(
+                                position_db_id=pos_id,
+                                add_amount_usdt=add_amount,
+                                new_tp_usdt=tp_usdt,
+                                new_sl_usdt=sl_usdt
+                            )
+                            
+                            if success:
+                                # Update recovery count in database
+                                pos_record = db.query(Position).filter(Position.id == pos_id).first()
+                                if pos_record:
+                                    current_count = pos_record.recovery_count or 0
+                                    pos_record.recovery_count = current_count + 1
+                                    pos_record.last_recovery_at = datetime.now(timezone.utc)
+                                    db.commit()
+                                print(f"✅ {message}")
+                            else:
+                                print(f"❌ Recovery başarısız: {message}")
+                        finally:
+                            # Remove from recovery set after completion
+                            self.positions_in_recovery.discard(pos_id)
+                    
+            finally:
+                db.close()
+                
+        except Exception as e:
+            print(f"Error checking recovery: {e}")
+    
     def check_positions(self):
         try:
             print("LOG: Pozisyonlar kontrol ediliyor...")
@@ -364,6 +475,14 @@ class PositionMonitor:
                     'interval',
                     seconds=30,
                     id='position_reopener',
+                    replace_existing=True
+                )
+                
+                self.scheduler.add_job(
+                    self.check_recovery,
+                    'interval',
+                    seconds=15,
+                    id='recovery_checker',
                     replace_existing=True
                 )
                 

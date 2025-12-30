@@ -543,6 +543,42 @@ class OKXTestnetClient:
             print(f"Error getting trades: {e}")
             return []
     
+    def cancel_all_position_orders(self, symbol: str, position_side: str) -> int:
+        """Cancel all algo orders for a specific position (TP/SL orders)"""
+        if not self.trade_api:
+            return 0
+        
+        cancelled_count = 0
+        try:
+            inst_id = self.convert_symbol_to_okx(symbol)
+            
+            # Get all algo orders for this symbol
+            all_orders = self.get_all_open_orders(symbol)
+            
+            for order in all_orders:
+                if order.get('state') != 'live':
+                    continue
+                
+                order_inst_id = order.get('instId', '')
+                order_pos_side = order.get('posSide', '')
+                algo_id = order.get('algoId')
+                
+                # Match by instId and posSide
+                if order_inst_id == inst_id and order_pos_side == position_side and algo_id:
+                    result = self.cancel_algo_order(symbol, algo_id)
+                    if result:
+                        cancelled_count += 1
+                        print(f"✂️ Cancelled order: {algo_id} ({order_inst_id} {order_pos_side})")
+            
+            return cancelled_count
+        except Exception as e:
+            print(f"Error cancelling position orders: {e}")
+            return cancelled_count
+    
+    def add_to_position(self, symbol: str, side: str, quantity: float, position_side: str = "long") -> Optional[Dict]:
+        """Add to existing position (same as place_market_order but named for clarity)"""
+        return self.place_market_order(symbol, side, quantity, position_side)
+    
     def get_positions_history(self, inst_type: str = "SWAP", limit: int = 100, before: str = None, after: str = None) -> list:
         """
         Get positions history from OKX with pagination support
