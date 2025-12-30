@@ -387,9 +387,9 @@ def show_new_trade_page():
             )
             
             with st.expander("🔧 Pozisyon Kontrolü", expanded=False):
-                st.caption("Bot'un auto-reopen davranışını kontrol edin")
+                st.caption("Bot'un auto-reopen davranışını kontrol edin veya pozisyonları silin")
                 
-                col_bulk1, col_bulk2, col_bulk3 = st.columns(3)
+                col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns(4)
                 
                 with col_bulk1:
                     if st.button("🟢 Tümünü Aç", use_container_width=True, key="bulk_open_all"):
@@ -408,6 +408,14 @@ def show_new_trade_page():
                         st.rerun()
                 
                 with col_bulk3:
+                    if st.button("🗑️ Kapalıları Sil", use_container_width=True, key="bulk_delete_closed"):
+                        closed_positions = [p for p in all_positions if not p.is_open]
+                        for pos in closed_positions:
+                            db.delete(pos)
+                        db.commit()
+                        st.rerun()
+                
+                with col_bulk4:
                     if st.button("🔄 Yenile", use_container_width=True, key="bulk_refresh"):
                         st.rerun()
                 
@@ -415,7 +423,7 @@ def show_new_trade_page():
                 monitor = get_monitor()
                 
                 for pos in all_positions:
-                    col1, col2, col3 = st.columns([3, 1, 0.5])
+                    col1, col2, col3, col4 = st.columns([3, 1, 0.5, 0.5])
                     
                     with col1:
                         status_icon = "🟢" if bool(pos.is_open) else "⚫"
@@ -449,6 +457,12 @@ def show_new_trade_page():
                                 setattr(pos, 'closed_at', None)
                                 db.commit()
                                 st.rerun()
+                    
+                    with col4:
+                        if st.button("🗑️", key=f"delete_{pos.id}", help="Sil"):
+                            db.delete(pos)
+                            db.commit()
+                            st.rerun()
     finally:
         db.close()
 
