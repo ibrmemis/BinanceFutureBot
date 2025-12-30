@@ -1396,8 +1396,8 @@ def show_settings_page():
         col1, col2, col3, col4 = st.columns(4)
         default_trigger = steps_data[i]['trigger'] if i < len(steps_data) else -50.0 * (i + 1)
         default_add = steps_data[i]['add'] if i < len(steps_data) else 100.0 * (i + 1)
-        default_tp = steps_data[i]['tp'] if i < len(steps_data) else 50.0
-        default_sl = steps_data[i]['sl'] if i < len(steps_data) else 100.0
+        default_tp = steps_data[i]['tp'] if i < len(steps_data) else current_tp
+        default_sl = steps_data[i]['sl'] if i < len(steps_data) else current_sl
         
         with col1:
             trigger = st.number_input(
