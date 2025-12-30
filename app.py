@@ -1369,6 +1369,120 @@ def show_settings_page():
     
     st.divider()
     
+    st.subheader("🛡️ Kurtarma (Recovery) Ayarları")
+    
+    st.info("""
+    **Kurtarma Özelliği Nedir?**
+    
+    Pozisyonunuz belirli bir zarar seviyesine ulaştığında otomatik olarak:
+    1. Mevcut TP/SL emirlerini iptal eder
+    2. Pozisyona ekleme yaparak ortalama maliyeti düşürür
+    3. Yeni toplam miktara göre TP/SL emirleri yerleştirir
+    """)
+    
+    # Load current recovery settings from database
+    db_recovery = SessionLocal()
+    try:
+        from database import Settings
+        
+        enabled_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_enabled").first()
+        trigger_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
+        add_amount_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_add_amount").first()
+        tp_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
+        sl_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
+        
+        current_enabled = enabled_setting.value.lower() == 'true' if enabled_setting else False
+        current_trigger = float(trigger_setting.value) if trigger_setting else -50.0
+        current_add_amount = float(add_amount_setting.value) if add_amount_setting else 100.0
+        current_tp = float(tp_setting.value) if tp_setting else 50.0
+        current_sl = float(sl_setting.value) if sl_setting else 100.0
+    finally:
+        db_recovery.close()
+    
+    recovery_enabled = st.toggle("🔄 Kurtarma Özelliği Aktif", value=current_enabled, 
+                                  help="Açık olduğunda, pozisyonlar zarar eşiğine ulaştığında otomatik kurtarma devreye girer")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        recovery_trigger = st.number_input(
+            "📉 Tetikleme PNL (USDT)",
+            min_value=-1000.0,
+            max_value=0.0,
+            value=current_trigger,
+            step=10.0,
+            help="Pozisyon PNL'i bu değere düştüğünde kurtarma tetiklenir (örn: -50 USDT)"
+        )
+        
+        recovery_add_amount = st.number_input(
+            "➕ Ekleme Miktarı (USDT)",
+            min_value=10.0,
+            max_value=10000.0,
+            value=current_add_amount,
+            step=50.0,
+            help="Kurtarma tetiklendiğinde pozisyona eklenecek miktar"
+        )
+    
+    with col2:
+        recovery_tp = st.number_input(
+            "🎯 Yeni TP (USDT)",
+            min_value=1.0,
+            max_value=10000.0,
+            value=current_tp,
+            step=10.0,
+            help="Kurtarma sonrası yeni kar hedefi (toplam pozisyon için)"
+        )
+        
+        recovery_sl = st.number_input(
+            "🛑 Yeni SL (USDT)",
+            min_value=1.0,
+            max_value=10000.0,
+            value=current_sl,
+            step=10.0,
+            help="Kurtarma sonrası yeni zarar limiti (toplam pozisyon için)"
+        )
+    
+    if st.button("💾 Kurtarma Ayarlarını Kaydet", type="primary"):
+        db_save = SessionLocal()
+        try:
+            from database import Settings
+            from datetime import datetime, timezone
+            
+            settings_to_save = [
+                ("recovery_enabled", str(recovery_enabled).lower()),
+                ("recovery_trigger_pnl", str(recovery_trigger)),
+                ("recovery_add_amount", str(recovery_add_amount)),
+                ("recovery_tp_usdt", str(recovery_tp)),
+                ("recovery_sl_usdt", str(recovery_sl))
+            ]
+            
+            for key, value in settings_to_save:
+                existing = db_save.query(Settings).filter(Settings.key == key).first()
+                if existing:
+                    existing.value = value
+                    existing.updated_at = datetime.now(timezone.utc)
+                else:
+                    new_setting = Settings(key=key, value=value)
+                    db_save.add(new_setting)
+            
+            db_save.commit()
+            st.success("✅ Kurtarma ayarları kaydedildi!")
+            
+            if recovery_enabled:
+                st.info(f"""
+                **Aktif Kurtarma Ayarları:**
+                - Tetikleme: PNL ≤ {recovery_trigger} USDT
+                - Ekleme: {recovery_add_amount} USDT
+                - Yeni TP: {recovery_tp} USDT | Yeni SL: {recovery_sl} USDT
+                """)
+        except Exception as e:
+            db_save.rollback()
+            st.error(f"❌ Hata: {str(e)}")
+        finally:
+            db_save.close()
+    
+    st.divider()
+    
     st.subheader("🌐 OKX Demo Trading Bilgileri")
     
     st.markdown("""
