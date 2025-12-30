@@ -108,10 +108,11 @@ Preferred communication style: Simple, everyday language.
   5. Update database with new position details and increment recovery_count
 - **Configurable Settings** (via Settings page):
   - `recovery_enabled`: Enable/disable the feature
-  - `recovery_trigger_pnl`: PNL threshold that triggers recovery (default -50 USDT)
-  - `recovery_add_amount`: Amount to add when recovery triggers (default 100 USDT)
-  - `recovery_tp_usdt`: New TP target after recovery (default 50 USDT)
-  - `recovery_sl_usdt`: New SL limit after recovery (default 100 USDT)
+  - **Per-step settings** (up to 5 steps):
+    - `recovery_step_X_trigger`: PNL threshold for step X
+    - `recovery_step_X_add`: Amount to add when step X triggers
+    - `recovery_step_X_tp`: TP target after step X recovery
+    - `recovery_step_X_sl`: SL limit after step X recovery
 - **Safety Features**:
   - Validates position exists on OKX before proceeding
   - Prevents duplicate triggers with `positions_in_recovery` set
