@@ -29,9 +29,8 @@ def get_cached_symbols():
     client = get_cached_client()
     return client.get_all_swap_symbols()
 
-@st.cache_data(ttl=10)
 def get_cached_price(symbol: str):
-    """Cache price for 10 seconds"""
+    """Get live price (no cache)"""
     client = get_cached_client()
     return client.get_symbol_price(symbol)
 
@@ -597,7 +596,6 @@ def show_active_positions_page():
     
     with col2:
         if st.button("🔄 Yenile", width="stretch"):
-            get_cached_price.clear()
             st.rerun()
     
     client = get_cached_client()
