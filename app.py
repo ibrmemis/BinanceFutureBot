@@ -1401,5 +1401,29 @@ def show_settings_page():
     finally:
         db.close()
 
+    st.divider()
+    st.subheader("🛠️ Veritabanı SQL Araçları")
+    st.warning("⚠️ **DİKKAT:** Bu bölüm doğrudan veritabanı sorguları çalıştırmanızı sağlar. Sadece ne yaptığınızdan eminseniz kullanın.")
+    
+    with st.expander("📝 SQL Komutu Çalıştır"):
+        sql_input = st.text_area("SQL Sorgusu", placeholder="ALTER TABLE api_credentials ADD COLUMN ...", height=100)
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            run_sql = st.button("🚀 Çalıştır", type="primary")
+        
+        if run_sql and sql_input:
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                # DML/DDL işlemleri için execute kullanıyoruz
+                db.execute(text(sql_input))
+                db.commit()
+                st.success("✅ SQL komutu başarıyla çalıştırıldı!")
+            except Exception as e:
+                db.rollback()
+                st.error(f"❌ SQL Hatası: {str(e)}")
+            finally:
+                db.close()
+
 if __name__ == "__main__":
     main()
