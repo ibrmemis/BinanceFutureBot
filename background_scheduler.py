@@ -546,6 +546,21 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
     global monitor, manually_stopped
     try:
         manually_stopped = False
+        
+        # Auto-enable recovery when bot starts
+        db = SessionLocal()
+        try:
+            recovery_setting = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
+            if recovery_setting:
+                recovery_setting.value = "true"
+            else:
+                recovery_setting = Settings(key="recovery_enabled", value="true")
+                db.add(recovery_setting)
+            db.commit()
+            print("🛡️ Kurtarma özelliği otomatik aktifleştirildi")
+        finally:
+            db.close()
+        
         if monitor is None:
             monitor = PositionMonitor(auto_reopen_delay_minutes)
             monitor.start()
