@@ -1351,15 +1351,19 @@ def show_settings_page():
         current_tp = float(tp_setting.value) if tp_setting else 50.0
         current_sl = float(sl_setting.value) if sl_setting else 100.0
         
-        # Load multi-step settings
+        # Load multi-step settings with per-step TP/SL
         steps_data = []
         for i in range(1, 6):
             trigger = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_trigger").first()
             add_amt = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_add").first()
+            tp_step = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_tp").first()
+            sl_step = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_sl").first()
             if trigger and add_amt:
                 steps_data.append({
                     'trigger': float(trigger.value),
-                    'add': float(add_amt.value)
+                    'add': float(add_amt.value),
+                    'tp': float(tp_step.value) if tp_step else 50.0,
+                    'sl': float(sl_step.value) if sl_step else 100.0
                 })
         
         # If no steps, use legacy settings as step 1
@@ -1368,7 +1372,9 @@ def show_settings_page():
             legacy_add = db_recovery.query(Settings).filter(Settings.key == "recovery_add_amount").first()
             steps_data.append({
                 'trigger': float(legacy_trigger.value) if legacy_trigger else -50.0,
-                'add': float(legacy_add.value) if legacy_add else 100.0
+                'add': float(legacy_add.value) if legacy_add else 100.0,
+                'tp': float(tp_setting.value) if tp_setting else 50.0,
+                'sl': float(sl_setting.value) if sl_setting else 100.0
             })
     finally:
         db_recovery.close()
@@ -1382,15 +1388,20 @@ def show_settings_page():
     
     step_triggers = []
     step_adds = []
+    step_tps = []
+    step_sls = []
     
     for i in range(int(num_steps)):
-        col1, col2 = st.columns(2)
+        st.markdown(f"**Basamak {i+1}**")
+        col1, col2, col3, col4 = st.columns(4)
         default_trigger = steps_data[i]['trigger'] if i < len(steps_data) else -50.0 * (i + 1)
         default_add = steps_data[i]['add'] if i < len(steps_data) else 100.0 * (i + 1)
+        default_tp = steps_data[i]['tp'] if i < len(steps_data) else 50.0
+        default_sl = steps_data[i]['sl'] if i < len(steps_data) else 100.0
         
         with col1:
             trigger = st.number_input(
-                f"Basamak {i+1} - Tetikleme PNL (USDT)",
+                f"Tetikleme PNL",
                 min_value=-10000.0,
                 max_value=0.0,
                 value=default_trigger,
@@ -1402,7 +1413,7 @@ def show_settings_page():
         
         with col2:
             add = st.number_input(
-                f"Basamak {i+1} - Ekleme (USDT)",
+                f"Ekleme (USDT)",
                 min_value=10.0,
                 max_value=50000.0,
                 value=default_add,
@@ -1411,28 +1422,30 @@ def show_settings_page():
                 help=f"Basamak {i+1} tetiklendiğinde eklenecek miktar"
             )
             step_adds.append(add)
-    
-    st.markdown("##### 🎯 TP/SL Ayarları (Tüm Basamaklar İçin)")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        recovery_tp = st.number_input(
-            "🎯 Yeni TP (USDT)",
-            min_value=1.0,
-            max_value=10000.0,
-            value=current_tp,
-            step=10.0,
-            help="Kurtarma sonrası yeni kar hedefi"
-        )
-    with col2:
-        recovery_sl = st.number_input(
-            "🛑 Yeni SL (USDT)",
-            min_value=1.0,
-            max_value=10000.0,
-            value=current_sl,
-            step=10.0,
-            help="Kurtarma sonrası yeni zarar limiti"
-        )
+        
+        with col3:
+            tp = st.number_input(
+                f"🎯 TP (USDT)",
+                min_value=1.0,
+                max_value=10000.0,
+                value=default_tp,
+                step=10.0,
+                key=f"step_{i}_tp",
+                help=f"Basamak {i+1} sonrası yeni kar hedefi"
+            )
+            step_tps.append(tp)
+        
+        with col4:
+            sl = st.number_input(
+                f"🛑 SL (USDT)",
+                min_value=1.0,
+                max_value=10000.0,
+                value=default_sl,
+                step=10.0,
+                key=f"step_{i}_sl",
+                help=f"Basamak {i+1} sonrası yeni zarar limiti"
+            )
+            step_sls.append(sl)
     
     if st.button("💾 Kurtarma Ayarlarını Kaydet", type="primary"):
         db_save = SessionLocal()
@@ -1441,24 +1454,22 @@ def show_settings_page():
             from datetime import datetime, timezone
             
             settings_to_save = [
-                ("recovery_enabled", str(recovery_enabled).lower()),
-                ("recovery_tp_usdt", str(recovery_tp)),
-                ("recovery_sl_usdt", str(recovery_sl))
+                ("recovery_enabled", str(recovery_enabled).lower())
             ]
             
-            # Save step settings
+            # Save step settings with per-step TP/SL
             for i in range(int(num_steps)):
                 settings_to_save.append((f"recovery_step_{i+1}_trigger", str(step_triggers[i])))
                 settings_to_save.append((f"recovery_step_{i+1}_add", str(step_adds[i])))
+                settings_to_save.append((f"recovery_step_{i+1}_tp", str(step_tps[i])))
+                settings_to_save.append((f"recovery_step_{i+1}_sl", str(step_sls[i])))
             
-            # Clear unused steps (6-5, etc)
+            # Clear unused steps
             for i in range(int(num_steps) + 1, 6):
-                existing_trigger = db_save.query(Settings).filter(Settings.key == f"recovery_step_{i}_trigger").first()
-                existing_add = db_save.query(Settings).filter(Settings.key == f"recovery_step_{i}_add").first()
-                if existing_trigger:
-                    db_save.delete(existing_trigger)
-                if existing_add:
-                    db_save.delete(existing_add)
+                for suffix in ['trigger', 'add', 'tp', 'sl']:
+                    existing = db_save.query(Settings).filter(Settings.key == f"recovery_step_{i}_{suffix}").first()
+                    if existing:
+                        db_save.delete(existing)
             
             for key, value in settings_to_save:
                 existing = db_save.query(Settings).filter(Settings.key == key).first()
@@ -1473,11 +1484,10 @@ def show_settings_page():
             st.success("✅ Basamaklı kurtarma ayarları kaydedildi!")
             
             if recovery_enabled:
-                step_info = "\n".join([f"  - Basamak {i+1}: PNL ≤ {step_triggers[i]} → +{step_adds[i]} USDT" for i in range(int(num_steps))])
+                step_info = "\n".join([f"  - Basamak {i+1}: PNL ≤ {step_triggers[i]} → +{step_adds[i]} USDT | TP:{step_tps[i]} SL:{step_sls[i]}" for i in range(int(num_steps))])
                 st.info(f"""
 **Aktif Kurtarma Ayarları:**
 {step_info}
-- TP: {recovery_tp} USDT | SL: {recovery_sl} USDT
                 """)
         except Exception as e:
             db_save.rollback()
