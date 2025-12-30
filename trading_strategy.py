@@ -16,19 +16,21 @@ class Try1Strategy:
         # Get contract value from OKX API (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
         if symbol:
             contract_value = self.client.get_contract_value(symbol)
+            lot_size = self.client.get_lot_size(symbol)
         else:
             contract_value = 1.0
+            lot_size = 1.0
         
         # Calculate exact contracts needed for desired position value
         # Contract USDT value = contract_value * current_price
         contract_usdt_value = contract_value * current_price
         exact_contracts = amount_usdt / contract_usdt_value
         
-        # Round to 2 decimal places (OKX supports fractional contracts with 0.01 precision)
-        contracts = round(exact_contracts, 2)
+        # Round to lot size (OKX requires order quantity to be multiple of lotSz)
+        contracts = self.client.round_to_lot_size(exact_contracts, lot_size)
         
-        # Ensure minimum 0.01 contracts (OKX requirement)
-        return max(0.01, contracts)
+        # Ensure minimum lot size
+        return max(lot_size, contracts)
     
     def calculate_tp_sl_prices(
         self,

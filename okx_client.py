@@ -194,6 +194,30 @@ class OKXTestnetClient:
         else:
             return 1.0
     
+    def get_lot_size(self, symbol: str) -> float:
+        """Get lot size (lotSz) for a symbol from OKX API - minimum order quantity step"""
+        if not self.public_api:
+            return 1.0
+        
+        inst_id = self.convert_symbol_to_okx(symbol)
+        try:
+            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            if result.get('code') == '0' and result.get('data'):
+                lot_sz = float(result['data'][0].get('lotSz', 1))
+                return lot_sz
+        except Exception as e:
+            print(f"Error getting lot size: {e}")
+        
+        return 1.0
+    
+    def round_to_lot_size(self, quantity: float, lot_size: float) -> float:
+        """Round quantity to nearest lot size multiple"""
+        import math
+        if lot_size <= 0:
+            return quantity
+        rounded = math.floor(quantity / lot_size) * lot_size
+        return max(lot_size, rounded)
+    
     def get_symbol_price(self, symbol: str) -> Optional[float]:
         if not self.market_api:
             return None
