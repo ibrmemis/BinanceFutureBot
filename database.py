@@ -47,6 +47,7 @@ class APICredentials(Base):
     api_key_encrypted = Column(Text, nullable=False)
     api_secret_encrypted = Column(Text, nullable=False)
     passphrase_encrypted = Column(Text, nullable=False)
+    is_demo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

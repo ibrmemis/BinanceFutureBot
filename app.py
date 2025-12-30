@@ -1173,97 +1173,90 @@ def show_orders_page():
 def show_settings_page():
     st.header("⚙️ Sistem Ayarları")
     
-    client = OKXTestnetClient()
-    
-    st.subheader("🔑 API Bağlantı Durumu")
-    
-    if client.is_configured():
-        st.success("✅ OKX API bağlantısı aktif")
+    db = SessionLocal()
+    try:
+        # Load existing credentials
+        creds = db.query(APICredentials).first()
+        existing_api_key = ""
+        existing_api_secret = ""
+        existing_passphrase = ""
+        existing_is_demo = True
         
-        # DEBUG: API Key Gösterimi
-        with st.expander("👁️ Mevcut API Bilgilerini Gör"):
-            db = SessionLocal()
+        if creds:
             try:
-                creds = db.query(APICredentials).first()
+                existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
+                existing_is_demo = getattr(creds, 'is_demo', True)
+            except:
+                pass
+        
+        st.subheader("🔑 OKX API Yapılandırması")
+        
+        # Account Type Selection
+        account_type = st.radio(
+            "Hesap Türü",
+            ["Demo Hesap (Simüle)", "Gerçek Hesap (Live)"],
+            index=0 if existing_is_demo else 1,
+            help="Demo hesap için flag=1, Gerçek hesap için flag=0 kullanılır."
+        )
+        is_demo = (account_type == "Demo Hesap (Simüle)")
+        
+        col_api1, col_api2, col_api3 = st.columns(3)
+        with col_api1:
+            new_api_key = st.text_input("API Key", value=existing_api_key, type="password", key="new_settings_api_key")
+        with col_api2:
+            new_api_secret = st.text_input("API Secret", value=existing_api_secret, type="password", key="new_settings_api_secret")
+        with col_api3:
+            new_passphrase = st.text_input("Passphrase", value=existing_passphrase, type="password", key="new_settings_passphrase")
+        
+        if st.button("💾 API Bilgilerini Kaydet", key="save_api_creds_btn"):
+            if not new_api_key or not new_api_secret or not new_passphrase:
+                st.error("Lütfen tüm alanları doldurun.")
+            else:
                 if creds:
-                    k, s, p = creds.get_credentials()
-                    st.code(f"Key: {k}\nSecret: {s}\nPassphrase: {p}", language="text")
+                    creds.set_credentials(new_api_key, new_api_secret, new_passphrase)
+                    creds.is_demo = is_demo
+                    creds.updated_at = datetime.utcnow()
                 else:
-                    st.warning("Veritabanında kayıtlı anahtar bulunamadı (Environment variables kullanılıyor olabilir).")
-            finally:
-                db.close()
+                    creds = APICredentials(is_demo=is_demo)
+                    creds.set_credentials(new_api_key, new_api_secret, new_passphrase)
+                    db.add(creds)
+                
+                db.commit()
+                st.success(f"API bilgileri ({account_type}) başarıyla kaydedildi! Değişikliklerin uygulanması için botu yeniden başlatmanız gerekebilir.")
+                st.rerun()
         
-        col1, col2 = st.columns(2)
+        st.divider()
         
-        with col1:
-            if st.button("🔄 Position Mode'u Kontrol Et ve Aktifleştir"):
-                success = client.set_position_mode("long_short_mode")
-                if success:
-                    st.success("✅ Long/Short position mode aktif")
-                else:
-                    st.error("❌ Position mode aktif edilemedi")
+        st.subheader("🔑 API Bağlantı Durumu")
         
-        with col2:
-            db = SessionLocal()
-            try:
-                creds = db.query(APICredentials).first()
+        client = OKXTestnetClient()
+        if client.is_configured():
+            st.success(f"✅ OKX API bağlantısı aktif ({'Demo' if getattr(creds, 'is_demo', True) else 'Gerçek'})")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Position Mode'u Kontrol Et ve Aktifleştir"):
+                    success = client.set_position_mode("long_short_mode")
+                    if success:
+                        st.success("✅ Long/Short position mode aktif")
+                    else:
+                        st.error("❌ Position mode aktif edilemedi")
+            
+            with col2:
                 if creds:
                     if st.button("🗑️ API Anahtarlarını Sil"):
                         db.delete(creds)
                         db.commit()
                         st.success("API anahtarları silindi. Sayfa yenileniyor...")
                         st.rerun()
-            finally:
-                db.close()
-    else:
-        st.error("❌ API bağlantısı kurulamadı")
-    
-    # API Anahtarlarını Güncelleme/Düzeltme Bölümü (Her zaman görünür)
-    with st.expander("🔧 API Anahtarlarını Güncelle / Düzelt"):
-        # Mevcut anahtarları veritabanından çek
-        db = SessionLocal()
-        existing_api_key = ""
-        existing_api_secret = ""
-        existing_passphrase = ""
-        try:
-            creds = db.query(APICredentials).first()
-            if creds:
-                existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
-        except Exception:
-            pass
-        finally:
-            db.close()
-
-        api_key_input = st.text_input("API Key", value=existing_api_key, type="password", key="settings_api_key")
-        api_secret_input = st.text_input("API Secret", value=existing_api_secret, type="password", key="settings_api_secret")
-        passphrase_input = st.text_input("Passphrase", value=existing_passphrase, type="password", key="settings_passphrase")
+        else:
+            st.error("❌ API bağlantısı kurulamadı")
+            
+        st.divider()
         
-        if st.button("Kaydet ve Bağlan"):
-            if api_key_input and api_secret_input and passphrase_input:
-                db = SessionLocal()
-                try:
-                    creds = db.query(APICredentials).first()
-                    if creds:
-                        creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                    else:
-                        creds = APICredentials()
-                        creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                        db.add(creds)
-                    db.commit()
-                    st.success("✅ API anahtarları güncellendi! Sayfa yenileniyor...")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Hata: {e}")
-                finally:
-                    db.close()
-            else:
-                st.warning("Lütfen tüm alanları doldurun.")
-    
-    st.divider()
-    
-    st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
-    
-    st.info("⚙️ **Auto-Reopen Ayarları**")
+        st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
+        
+        st.info("⚙️ **Auto-Reopen Ayarları**")
     
     auto_reopen_delay = st.number_input(
         "Pozisyon kapandıktan kaç dakika sonra yeniden açılsın?",

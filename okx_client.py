@@ -58,18 +58,26 @@ class OKXTestnetClient:
         self.api_secret = os.getenv("OKX_DEMO_API_SECRET")
         self.passphrase = os.getenv("OKX_DEMO_PASSPHRASE")
         
-        if not self.api_key or not self.api_secret or not self.passphrase:
+        # Default flag to 1 (Demo) unless specified otherwise in DB
+        self.flag = "1"
+        
+        try:
+            from database import SessionLocal, APICredentials
+            db = SessionLocal()
             try:
-                from database import SessionLocal, APICredentials
-                db = SessionLocal()
-                try:
-                    creds = db.query(APICredentials).first()
-                    if creds:
+                creds = db.query(APICredentials).first()
+                if creds:
+                    # If environment variables are not set, use database credentials
+                    if not self.api_key or not self.api_secret or not self.passphrase:
                         self.api_key, self.api_secret, self.passphrase = creds.get_credentials()
-                finally:
-                    db.close()
-            except Exception as e:
-                pass
+                    
+                    # Update flag based on is_demo setting in DB
+                    # is_demo=True -> flag="1", is_demo=False -> flag="0"
+                    self.flag = "1" if getattr(creds, 'is_demo', True) else "0"
+            finally:
+                db.close()
+        except Exception as e:
+            pass
     
     def is_configured(self) -> bool:
         return (self.account_api is not None and 
