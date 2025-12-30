@@ -439,45 +439,43 @@ def show_new_trade_page():
             )
             
             with st.expander("🔧 Pozisyon Kontrolü", expanded=False):
-                st.caption("Bot'un auto-reopen davranışını kontrol edin veya pozisyonları silin")
-                
-                col_bulk1, col_bulk2, col_bulk3, col_bulk4 = st.columns(4)
-                
-                with col_bulk1:
-                    if st.button("🟢 Tümünü Aç", use_container_width=True, key="bulk_open_all"):
-                        for pos in all_positions:
-                            setattr(pos, 'is_open', True)
-                            setattr(pos, 'closed_at', None)
-                        db.commit()
-                        st.rerun()
-                
-                with col_bulk2:
-                    if st.button("⚫ Tümünü Kapat", use_container_width=True, key="bulk_close_all"):
-                        for pos in all_positions:
-                            setattr(pos, 'is_open', False)
-                            setattr(pos, 'closed_at', datetime.now(timezone.utc))
-                        db.commit()
-                        st.rerun()
-                
-                with col_bulk3:
-                    if st.button("🗑️ Kapalıları Sil", use_container_width=True, key="bulk_delete_closed"):
-                        closed_positions = [p for p in all_positions if not p.is_open]
-                        for pos in closed_positions:
-                            db.delete(pos)
-                        db.commit()
-                        st.rerun()
-                
-                with col_bulk4:
-                    if st.button("🔄 Yenile", use_container_width=True, key="bulk_refresh"):
-                        st.rerun()
+                st.caption("Çoklu seçim yapıp toplu işlem yapabilirsiniz")
                 
                 from background_scheduler import get_monitor
                 monitor = get_monitor()
                 
+                # Initialize session state for selected positions
+                if 'selected_positions' not in st.session_state:
+                    st.session_state.selected_positions = set()
+                
+                # Select all / Deselect all
+                col_sel1, col_sel2 = st.columns(2)
+                with col_sel1:
+                    if st.button("☑️ Tümünü Seç", use_container_width=True, key="select_all"):
+                        st.session_state.selected_positions = {pos.id for pos in all_positions}
+                        st.rerun()
+                with col_sel2:
+                    if st.button("⬜ Seçimi Kaldır", use_container_width=True, key="deselect_all"):
+                        st.session_state.selected_positions = set()
+                        st.rerun()
+                
+                # Display positions with checkboxes
                 for pos in all_positions:
-                    col1, col2, col3, col4 = st.columns([3, 1, 0.5, 0.5])
+                    col_check, col_info, col_action = st.columns([0.3, 2.5, 1.2])
                     
-                    with col1:
+                    with col_check:
+                        is_selected = st.checkbox(
+                            "", 
+                            value=pos.id in st.session_state.selected_positions,
+                            key=f"sel_{pos.id}",
+                            label_visibility="collapsed"
+                        )
+                        if is_selected:
+                            st.session_state.selected_positions.add(pos.id)
+                        else:
+                            st.session_state.selected_positions.discard(pos.id)
+                    
+                    with col_info:
                         status_icon = "🟢" if bool(pos.is_open) else "⚫"
                         reopen_info = ""
                         if monitor and pos.id in monitor.closed_positions_for_reopen:
@@ -488,33 +486,72 @@ def show_new_trade_page():
                             if remaining.total_seconds() > 0:
                                 mins = int(remaining.total_seconds() // 60)
                                 secs = int(remaining.total_seconds() % 60)
-                                reopen_info = f" ⏱️ {mins}:{secs:02d}"
-                        st.write(f"{status_icon} #{pos.id} {pos.symbol} {pos.side}{reopen_info}")
-                    
-                    with col2:
+                                reopen_info = f" ⏱️{mins}:{secs:02d}"
                         tp_str = f"${pos.tp_usdt:.0f}" if pos.tp_usdt else "—"
                         sl_str = f"${pos.sl_usdt:.0f}" if pos.sl_usdt else "—"
-                        st.caption(f"TP:{tp_str} SL:{sl_str}")
+                        st.write(f"{status_icon} #{pos.id} {pos.symbol} {pos.side} | TP:{tp_str} SL:{sl_str}{reopen_info}")
                     
-                    with col3:
-                        if bool(pos.is_open):
-                            if st.button("⚫", key=f"close_{pos.id}"):
-                                setattr(pos, 'is_open', False)
-                                setattr(pos, 'closed_at', datetime.now(timezone.utc))
+                    with col_action:
+                        btn_col1, btn_col2 = st.columns(2)
+                        with btn_col1:
+                            if bool(pos.is_open):
+                                if st.button("⚫", key=f"close_{pos.id}", help="Kapat"):
+                                    setattr(pos, 'is_open', False)
+                                    setattr(pos, 'closed_at', datetime.now(timezone.utc))
+                                    db.commit()
+                                    st.rerun()
+                            else:
+                                if st.button("🟢", key=f"open_{pos.id}", help="Aç"):
+                                    setattr(pos, 'is_open', True)
+                                    setattr(pos, 'closed_at', None)
+                                    db.commit()
+                                    st.rerun()
+                        with btn_col2:
+                            if st.button("🗑️", key=f"delete_{pos.id}", help="Sil"):
+                                db.delete(pos)
                                 db.commit()
+                                st.session_state.selected_positions.discard(pos.id)
                                 st.rerun()
-                        else:
-                            if st.button("🟢", key=f"open_{pos.id}"):
-                                setattr(pos, 'is_open', True)
-                                setattr(pos, 'closed_at', None)
-                                db.commit()
-                                st.rerun()
+                
+                st.divider()
+                
+                # Bulk actions for selected positions
+                selected_count = len(st.session_state.selected_positions)
+                st.markdown(f"**Seçili: {selected_count} pozisyon**")
+                
+                if selected_count > 0:
+                    col_bulk1, col_bulk2, col_bulk3 = st.columns(3)
                     
-                    with col4:
-                        if st.button("🗑️", key=f"delete_{pos.id}", help="Sil"):
-                            db.delete(pos)
+                    with col_bulk1:
+                        if st.button("🟢 Seçilileri Aç", use_container_width=True, key="bulk_open_selected", type="primary"):
+                            for pos in all_positions:
+                                if pos.id in st.session_state.selected_positions:
+                                    setattr(pos, 'is_open', True)
+                                    setattr(pos, 'closed_at', None)
                             db.commit()
+                            st.session_state.selected_positions = set()
                             st.rerun()
+                    
+                    with col_bulk2:
+                        if st.button("⚫ Seçilileri Kapat", use_container_width=True, key="bulk_close_selected"):
+                            for pos in all_positions:
+                                if pos.id in st.session_state.selected_positions:
+                                    setattr(pos, 'is_open', False)
+                                    setattr(pos, 'closed_at', datetime.now(timezone.utc))
+                            db.commit()
+                            st.session_state.selected_positions = set()
+                            st.rerun()
+                    
+                    with col_bulk3:
+                        if st.button("🗑️ Seçilileri Sil", use_container_width=True, key="bulk_delete_selected"):
+                            for pos in all_positions:
+                                if pos.id in st.session_state.selected_positions:
+                                    db.delete(pos)
+                            db.commit()
+                            st.session_state.selected_positions = set()
+                            st.rerun()
+                else:
+                    st.caption("İşlem yapmak için pozisyon seçin")
     finally:
         db.close()
 
