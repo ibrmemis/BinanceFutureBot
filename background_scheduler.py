@@ -51,7 +51,7 @@ class PositionMonitor:
             db.close()
     
     def _load_recovery_settings(self) -> dict:
-        """Load recovery settings from database"""
+        """Load recovery settings from database with multi-step support"""
         db = SessionLocal()
         try:
             settings = {}
@@ -60,21 +60,39 @@ class PositionMonitor:
             enabled = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
             settings['enabled'] = enabled.value.lower() == 'true' if enabled else False
             
-            # Trigger PNL (negative USDT value that triggers recovery)
-            trigger = db.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
-            settings['trigger_pnl'] = float(trigger.value) if trigger else -50.0
-            
-            # Add amount (USDT to add when recovery triggers)
-            add_amount = db.query(Settings).filter(Settings.key == "recovery_add_amount").first()
-            settings['add_amount'] = float(add_amount.value) if add_amount else 100.0
-            
-            # New TP (USDT)
+            # New TP (USDT) - same for all steps
             tp = db.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
             settings['tp_usdt'] = float(tp.value) if tp else 50.0
             
-            # New SL (USDT)
+            # New SL (USDT) - same for all steps
             sl = db.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
             settings['sl_usdt'] = float(sl.value) if sl else 100.0
+            
+            # Load multi-step recovery settings (up to 5 steps)
+            steps = []
+            for i in range(1, 6):
+                trigger_key = f"recovery_step_{i}_trigger"
+                add_key = f"recovery_step_{i}_add"
+                
+                trigger = db.query(Settings).filter(Settings.key == trigger_key).first()
+                add_amount = db.query(Settings).filter(Settings.key == add_key).first()
+                
+                if trigger and add_amount:
+                    steps.append({
+                        'trigger_pnl': float(trigger.value),
+                        'add_amount': float(add_amount.value)
+                    })
+            
+            # If no steps defined, use legacy single-step settings
+            if not steps:
+                trigger = db.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
+                add_amount = db.query(Settings).filter(Settings.key == "recovery_add_amount").first()
+                steps.append({
+                    'trigger_pnl': float(trigger.value) if trigger else -50.0,
+                    'add_amount': float(add_amount.value) if add_amount else 100.0
+                })
+            
+            settings['steps'] = steps
             
             return settings
         finally:
@@ -105,7 +123,7 @@ class PositionMonitor:
             self.strategy = Try1Strategy()
         
     def check_recovery(self):
-        """Check positions for recovery trigger (PNL drops below threshold)"""
+        """Check positions for multi-step recovery trigger (PNL drops below threshold)"""
         try:
             recovery_settings = self._load_recovery_settings()
             
@@ -116,10 +134,12 @@ class PositionMonitor:
             if not self.strategy or not self.strategy.client.is_configured():
                 return
             
-            trigger_pnl = recovery_settings.get('trigger_pnl', -50.0)
-            add_amount = recovery_settings.get('add_amount', 100.0)
+            steps = recovery_settings.get('steps', [])
             tp_usdt = recovery_settings.get('tp_usdt', 50.0)
             sl_usdt = recovery_settings.get('sl_usdt', 100.0)
+            
+            if not steps:
+                return
             
             # Collect positions that need recovery (don't hold DB session during API calls)
             positions_to_recover = []
@@ -133,6 +153,18 @@ class PositionMonitor:
                     
                     if pos_id in self.positions_in_recovery:
                         continue
+                    
+                    # Get current recovery count
+                    current_recovery_count = pos.recovery_count if pos.recovery_count else 0
+                    
+                    # Check if all steps exhausted
+                    if current_recovery_count >= len(steps):
+                        continue  # All recovery steps used, skip this position
+                    
+                    # Get the next step's trigger and add amount
+                    next_step = steps[current_recovery_count]
+                    trigger_pnl = next_step['trigger_pnl']
+                    add_amount = next_step['add_amount']
                     
                     position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
                     okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
@@ -151,7 +183,10 @@ class PositionMonitor:
                             'pos_id': pos_id,
                             'symbol': str(pos.symbol),
                             'side': str(pos.side),
-                            'unrealized_pnl': unrealized_pnl
+                            'unrealized_pnl': unrealized_pnl,
+                            'trigger_pnl': trigger_pnl,
+                            'add_amount': add_amount,
+                            'step_num': current_recovery_count + 1
                         })
             finally:
                 db.close()
@@ -163,14 +198,14 @@ class PositionMonitor:
                 if pos_id in self.positions_in_recovery:
                     continue
                 
-                print(f"🚨 RECOVERY TETİKLENDİ: {pos_data['symbol']} {pos_data['side']} | PNL: ${pos_data['unrealized_pnl']:.2f} <= ${trigger_pnl:.2f}")
+                print(f"🚨 RECOVERY BASAMAK {pos_data['step_num']} TETİKLENDİ: {pos_data['symbol']} {pos_data['side']} | PNL: ${pos_data['unrealized_pnl']:.2f} <= ${pos_data['trigger_pnl']:.2f} | Eklenecek: ${pos_data['add_amount']:.2f}")
                 
                 self.positions_in_recovery.add(pos_id)
                 
                 try:
                     success, message = self.strategy.execute_recovery(
                         position_db_id=pos_id,
-                        add_amount_usdt=add_amount,
+                        add_amount_usdt=pos_data['add_amount'],
                         new_tp_usdt=tp_usdt,
                         new_sl_usdt=sl_usdt
                     )

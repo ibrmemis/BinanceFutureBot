@@ -1269,12 +1269,12 @@ def show_settings_page():
     st.subheader("🛡️ Kurtarma (Recovery) Ayarları")
     
     st.info("""
-    **Kurtarma Özelliği Nedir?**
+    **Basamaklı Kurtarma Özelliği Nedir?**
     
-    Pozisyonunuz belirli bir zarar seviyesine ulaştığında otomatik olarak:
-    1. Mevcut TP/SL emirlerini iptal eder
-    2. Pozisyona ekleme yaparak ortalama maliyeti düşürür
-    3. Yeni toplam miktara göre TP/SL emirleri yerleştirir
+    Pozisyonunuz belirli zarar seviyelerine ulaştığında **basamaklı olarak** otomatik kurtarma uygular:
+    - Her basamak yalnızca **bir kez** uygulanır
+    - Sonraki basamak için belirtilen PNL değerine düşmesi beklenir
+    - Maksimum 5 basamak tanımlanabilir
     """)
     
     # Load current recovery settings from database
@@ -1283,60 +1283,94 @@ def show_settings_page():
         from database import Settings
         
         enabled_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_enabled").first()
-        trigger_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
-        add_amount_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_add_amount").first()
         tp_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
         sl_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
         
         current_enabled = enabled_setting.value.lower() == 'true' if enabled_setting else False
-        current_trigger = float(trigger_setting.value) if trigger_setting else -50.0
-        current_add_amount = float(add_amount_setting.value) if add_amount_setting else 100.0
         current_tp = float(tp_setting.value) if tp_setting else 50.0
         current_sl = float(sl_setting.value) if sl_setting else 100.0
+        
+        # Load multi-step settings
+        steps_data = []
+        for i in range(1, 6):
+            trigger = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_trigger").first()
+            add_amt = db_recovery.query(Settings).filter(Settings.key == f"recovery_step_{i}_add").first()
+            if trigger and add_amt:
+                steps_data.append({
+                    'trigger': float(trigger.value),
+                    'add': float(add_amt.value)
+                })
+        
+        # If no steps, use legacy settings as step 1
+        if not steps_data:
+            legacy_trigger = db_recovery.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
+            legacy_add = db_recovery.query(Settings).filter(Settings.key == "recovery_add_amount").first()
+            steps_data.append({
+                'trigger': float(legacy_trigger.value) if legacy_trigger else -50.0,
+                'add': float(legacy_add.value) if legacy_add else 100.0
+            })
     finally:
         db_recovery.close()
     
     recovery_enabled = st.toggle("🔄 Kurtarma Özelliği Aktif", value=current_enabled, 
-                                  help="Açık olduğunda, pozisyonlar zarar eşiğine ulaştığında otomatik kurtarma devreye girer")
+                                  help="Bot başladığında otomatik açılır, sadece manuel kapatılabilir")
+    
+    st.markdown("##### 📊 Basamak Ayarları")
+    
+    num_steps = st.number_input("Basamak Sayısı", min_value=1, max_value=5, value=len(steps_data), step=1)
+    
+    step_triggers = []
+    step_adds = []
+    
+    for i in range(int(num_steps)):
+        col1, col2 = st.columns(2)
+        default_trigger = steps_data[i]['trigger'] if i < len(steps_data) else -50.0 * (i + 1)
+        default_add = steps_data[i]['add'] if i < len(steps_data) else 100.0 * (i + 1)
+        
+        with col1:
+            trigger = st.number_input(
+                f"Basamak {i+1} - Tetikleme PNL (USDT)",
+                min_value=-10000.0,
+                max_value=0.0,
+                value=default_trigger,
+                step=10.0,
+                key=f"step_{i}_trigger",
+                help=f"Basamak {i+1} için tetikleme değeri"
+            )
+            step_triggers.append(trigger)
+        
+        with col2:
+            add = st.number_input(
+                f"Basamak {i+1} - Ekleme (USDT)",
+                min_value=10.0,
+                max_value=50000.0,
+                value=default_add,
+                step=50.0,
+                key=f"step_{i}_add",
+                help=f"Basamak {i+1} tetiklendiğinde eklenecek miktar"
+            )
+            step_adds.append(add)
+    
+    st.markdown("##### 🎯 TP/SL Ayarları (Tüm Basamaklar İçin)")
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        recovery_trigger = st.number_input(
-            "📉 Tetikleme PNL (USDT)",
-            min_value=-1000.0,
-            max_value=0.0,
-            value=current_trigger,
-            step=10.0,
-            help="Pozisyon PNL'i bu değere düştüğünde kurtarma tetiklenir (örn: -50 USDT)"
-        )
-        
-        recovery_add_amount = st.number_input(
-            "➕ Ekleme Miktarı (USDT)",
-            min_value=10.0,
-            max_value=10000.0,
-            value=current_add_amount,
-            step=50.0,
-            help="Kurtarma tetiklendiğinde pozisyona eklenecek miktar"
-        )
-    
-    with col2:
         recovery_tp = st.number_input(
             "🎯 Yeni TP (USDT)",
             min_value=1.0,
             max_value=10000.0,
             value=current_tp,
             step=10.0,
-            help="Kurtarma sonrası yeni kar hedefi (toplam pozisyon için)"
+            help="Kurtarma sonrası yeni kar hedefi"
         )
-        
+    with col2:
         recovery_sl = st.number_input(
             "🛑 Yeni SL (USDT)",
             min_value=1.0,
             max_value=10000.0,
             value=current_sl,
             step=10.0,
-            help="Kurtarma sonrası yeni zarar limiti (toplam pozisyon için)"
+            help="Kurtarma sonrası yeni zarar limiti"
         )
     
     if st.button("💾 Kurtarma Ayarlarını Kaydet", type="primary"):
@@ -1347,11 +1381,23 @@ def show_settings_page():
             
             settings_to_save = [
                 ("recovery_enabled", str(recovery_enabled).lower()),
-                ("recovery_trigger_pnl", str(recovery_trigger)),
-                ("recovery_add_amount", str(recovery_add_amount)),
                 ("recovery_tp_usdt", str(recovery_tp)),
                 ("recovery_sl_usdt", str(recovery_sl))
             ]
+            
+            # Save step settings
+            for i in range(int(num_steps)):
+                settings_to_save.append((f"recovery_step_{i+1}_trigger", str(step_triggers[i])))
+                settings_to_save.append((f"recovery_step_{i+1}_add", str(step_adds[i])))
+            
+            # Clear unused steps (6-5, etc)
+            for i in range(int(num_steps) + 1, 6):
+                existing_trigger = db_save.query(Settings).filter(Settings.key == f"recovery_step_{i}_trigger").first()
+                existing_add = db_save.query(Settings).filter(Settings.key == f"recovery_step_{i}_add").first()
+                if existing_trigger:
+                    db_save.delete(existing_trigger)
+                if existing_add:
+                    db_save.delete(existing_add)
             
             for key, value in settings_to_save:
                 existing = db_save.query(Settings).filter(Settings.key == key).first()
@@ -1363,14 +1409,14 @@ def show_settings_page():
                     db_save.add(new_setting)
             
             db_save.commit()
-            st.success("✅ Kurtarma ayarları kaydedildi!")
+            st.success("✅ Basamaklı kurtarma ayarları kaydedildi!")
             
             if recovery_enabled:
+                step_info = "\n".join([f"  - Basamak {i+1}: PNL ≤ {step_triggers[i]} → +{step_adds[i]} USDT" for i in range(int(num_steps))])
                 st.info(f"""
-                **Aktif Kurtarma Ayarları:**
-                - Tetikleme: PNL ≤ {recovery_trigger} USDT
-                - Ekleme: {recovery_add_amount} USDT
-                - Yeni TP: {recovery_tp} USDT | Yeni SL: {recovery_sl} USDT
+**Aktif Kurtarma Ayarları:**
+{step_info}
+- TP: {recovery_tp} USDT | SL: {recovery_sl} USDT
                 """)
         except Exception as e:
             db_save.rollback()
