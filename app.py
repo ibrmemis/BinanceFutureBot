@@ -1257,6 +1257,8 @@ def show_settings_page():
         st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
         
         st.info("⚙️ **Auto-Reopen Ayarları**")
+    finally:
+        db.close()
     
     auto_reopen_delay = st.number_input(
         "Pozisyon kapandıktan kaç dakika sonra yeniden açılsın?",
