@@ -18,6 +18,41 @@ init_db()
 
 monitor = get_monitor()
 
+@st.cache_resource(ttl=300)
+def get_cached_client():
+    """Cache OKX client for 5 minutes"""
+    return OKXTestnetClient()
+
+@st.cache_data(ttl=60)
+def get_cached_symbols():
+    """Cache symbol list for 1 minute"""
+    client = get_cached_client()
+    return client.get_all_swap_symbols()
+
+@st.cache_data(ttl=10)
+def get_cached_price(symbol: str):
+    """Cache price for 10 seconds"""
+    client = get_cached_client()
+    return client.get_symbol_price(symbol)
+
+@st.cache_data(ttl=30)
+def get_cached_positions():
+    """Cache database positions for 30 seconds"""
+    db = SessionLocal()
+    try:
+        positions = db.query(Position).order_by(Position.opened_at.desc()).all()
+        return [{'id': p.id, 'symbol': p.symbol, 'side': p.side, 'amount_usdt': p.amount_usdt,
+                 'leverage': p.leverage, 'tp_usdt': p.tp_usdt, 'sl_usdt': p.sl_usdt,
+                 'entry_price': p.entry_price, 'quantity': p.quantity, 'is_open': p.is_open,
+                 'position_side': p.position_side, 'opened_at': p.opened_at, 'position_id': p.position_id,
+                 'recovery_count': p.recovery_count} for p in positions]
+    finally:
+        db.close()
+
+def clear_position_cache():
+    """Clear position cache after mutations"""
+    get_cached_positions.clear()
+
 def check_api_keys():
     api_key = os.getenv("OKX_DEMO_API_KEY")
     api_secret = os.getenv("OKX_DEMO_API_SECRET")
@@ -260,8 +295,8 @@ def show_database_page():
 def show_new_trade_page():
     st.header("🎯 Yeni İşlem Aç")
     
-    client = OKXTestnetClient()
-    all_symbols = client.get_all_swap_symbols()
+    client = get_cached_client()
+    all_symbols = get_cached_symbols()
     
     popular_coins = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
     other_coins = [s for s in all_symbols if s not in popular_coins]
@@ -272,7 +307,7 @@ def show_new_trade_page():
         
         with col1:
             symbol = st.selectbox("Coin", ordered_symbols, help=f"{len(all_symbols)} çift mevcut")
-            current_price = client.get_symbol_price(symbol)
+            current_price = get_cached_price(symbol)
             if current_price:
                 st.caption(f"Fiyat: **${current_price:,.2f}**")
         
@@ -348,7 +383,7 @@ def show_new_trade_page():
     
     st.subheader("📋 Pozisyonlar")
     
-    client = OKXTestnetClient()
+    client = get_cached_client()
     
     if not client.is_configured():
         st.warning("OKX API yapılandırılmamış.")
@@ -562,9 +597,10 @@ def show_active_positions_page():
     
     with col2:
         if st.button("🔄 Yenile", width="stretch"):
+            get_cached_price.clear()
             st.rerun()
     
-    client = OKXTestnetClient()
+    client = get_cached_client()
     
     if not client.is_configured():
         st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
@@ -884,7 +920,7 @@ def show_orders_page():
         if st.button("🔄 Yenile  ", width="stretch"):
             st.rerun()
     
-    client = OKXTestnetClient()
+    client = get_cached_client()
     
     if not client.is_configured():
         st.error("OKX API yapılandırılmamış. Lütfen API anahtarlarınızı girin.")
@@ -1163,7 +1199,7 @@ def show_settings_page():
         
         st.subheader("🔑 API Bağlantı Durumu")
         
-        client = OKXTestnetClient()
+        client = get_cached_client()
         if client.is_configured():
             st.success(f"✅ OKX API bağlantısı aktif ({'Demo' if getattr(creds, 'is_demo', True) else 'Gerçek'})")
             
