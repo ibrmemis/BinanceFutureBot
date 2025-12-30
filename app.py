@@ -58,10 +58,62 @@ def main():
         finally:
             db.close()
     
-    st.title("📈 OKX Futures Trading Bot (Demo Trading)")
-    st.caption("OKX Demo Trading üzerinde çalışan otomatik futures trading botu")
+    db_check = SessionLocal()
+    try:
+        creds_check = db_check.query(APICredentials).first()
+        is_demo_mode = not creds_check or creds_check.is_demo
+    finally:
+        db_check.close()
+    
+    if is_demo_mode:
+        st.title("📈 OKX Futures Trading Bot (Demo)")
+        st.caption("Demo hesap üzerinde çalışıyor")
+    else:
+        st.title("💰 OKX Futures Trading Bot (GERÇEK)")
+        st.caption("⚠️ GERÇEK hesap üzerinde çalışıyor - dikkatli olun!")
     
     with st.sidebar:
+        st.header("🔐 Hesap Modu")
+        
+        db = SessionLocal()
+        try:
+            creds = db.query(APICredentials).first()
+            current_mode = "demo" if (not creds or creds.is_demo) else "real"
+        finally:
+            db.close()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🧪 Demo", type="primary" if current_mode == "demo" else "secondary", use_container_width=True, key="btn_demo"):
+                db = SessionLocal()
+                try:
+                    creds = db.query(APICredentials).first()
+                    if creds:
+                        creds.is_demo = True
+                        db.commit()
+                        st.rerun()
+                finally:
+                    db.close()
+        with col2:
+            if st.button("💰 Gerçek", type="primary" if current_mode == "real" else "secondary", use_container_width=True, key="btn_real"):
+                db = SessionLocal()
+                try:
+                    creds = db.query(APICredentials).first()
+                    if creds:
+                        creds.is_demo = False
+                        db.commit()
+                        st.rerun()
+                    else:
+                        st.warning("Önce API key kaydedin")
+                finally:
+                    db.close()
+        
+        if current_mode == "demo":
+            st.info("🧪 Demo hesap aktif")
+        else:
+            st.warning("💰 GERÇEK hesap aktif!")
+        
+        st.divider()
         st.header("🤖 Bot Kontrolü")
         
         monitor = get_monitor()
@@ -70,7 +122,7 @@ def main():
         if bot_running:
             st.success("✅ Bot Çalışıyor")
             st.caption("Pozisyonlar otomatik takip ediliyor")
-            if st.button("⏹️ Botu Durdur", type="primary", width="stretch"):
+            if st.button("⏹️ Botu Durdur", type="primary", use_container_width=True, key="btn_stop_bot"):
                 if stop_monitor():
                     st.success("Bot durduruldu!")
                     st.rerun()
@@ -79,7 +131,7 @@ def main():
         else:
             st.error("⏸️ Bot Durdu")
             st.caption("Pozisyonlar takip edilmiyor")
-            if st.button("▶️ Botu Başlat", type="primary", width="stretch"):
+            if st.button("▶️ Botu Başlat", type="primary", use_container_width=True, key="btn_start_bot"):
                 reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 3)
                 if start_monitor(reopen_delay):
                     st.success(f"Bot başlatıldı! (Auto-reopen: {reopen_delay} dk)")
