@@ -335,7 +335,7 @@ def show_new_trade_page():
                                 leverage=leverage, tp_usdt=tp_usdt, sl_usdt=sl_usdt,
                                 entry_price=current_price, quantity=0.0, order_id=None,
                                 position_id=None, position_side=position_side,
-                                tp_order_id=None, sl_order_id=None, is_open=True, parent_position_id=None
+                                tp_order_id=None, sl_order_id=None, is_open=False, parent_position_id=None
                             )
                             db.add(position)
                             db.commit()
