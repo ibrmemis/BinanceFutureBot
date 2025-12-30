@@ -231,6 +231,8 @@ class Try1Strategy:
         
         Returns: (success, message)
         """
+        from datetime import timezone
+        
         db = SessionLocal()
         try:
             pos = db.query(Position).filter(Position.id == position_db_id).first()
@@ -244,6 +246,14 @@ class Try1Strategy:
             side = str(pos.side)
             leverage = int(pos.leverage)
             position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
+            
+            # Verify position exists on OKX before proceeding
+            okx_pos_check = self.client.get_position(symbol, position_side)
+            if not okx_pos_check or abs(float(okx_pos_check.get('positionAmt', 0))) == 0:
+                return False, "Pozisyon OKX'te bulunamadı veya kapalı"
+            
+            # Verify position side matches
+            okx_pos_side = okx_pos_check.get('posSide', position_side) if 'posSide' in str(okx_pos_check) else position_side
             
             print(f"🔄 RECOVERY başlatılıyor: {symbol} {side} | DB ID: {position_db_id}")
             
@@ -309,6 +319,7 @@ class Try1Strategy:
             old_amount = float(pos.amount_usdt)
             new_total_amount = old_amount + add_amount_usdt
             
+            # Update position fields
             pos.amount_usdt = new_total_amount
             pos.entry_price = new_entry_price
             pos.quantity = new_quantity
@@ -318,9 +329,14 @@ class Try1Strategy:
             pos.tp_order_id = tp_order_id
             pos.sl_order_id = sl_order_id
             
+            # Update recovery tracking
+            current_recovery_count = pos.recovery_count or 0
+            pos.recovery_count = current_recovery_count + 1
+            pos.last_recovery_at = datetime.now(timezone.utc)
+            
             db.commit()
             
-            msg = f"✅ RECOVERY tamamlandı: {symbol} {side} | Eski miktar: ${old_amount:.2f} → Yeni miktar: ${new_total_amount:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
+            msg = f"✅ RECOVERY #{current_recovery_count + 1} tamamlandı: {symbol} {side} | Eski miktar: ${old_amount:.2f} → Yeni miktar: ${new_total_amount:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
             print(msg)
             
             return True, msg

@@ -121,19 +121,19 @@ class PositionMonitor:
             tp_usdt = recovery_settings.get('tp_usdt', 50.0)
             sl_usdt = recovery_settings.get('sl_usdt', 100.0)
             
+            # Collect positions that need recovery (don't hold DB session during API calls)
+            positions_to_recover = []
+            
             db = SessionLocal()
             try:
-                # Get all open positions from database
                 open_positions = db.query(Position).filter(Position.is_open == True).all()
                 
                 for pos in open_positions:
                     pos_id = pos.id
                     
-                    # Skip if already in recovery process
                     if pos_id in self.positions_in_recovery:
                         continue
                     
-                    # Get current position from OKX
                     position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
                     okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
                     
@@ -144,45 +144,50 @@ class PositionMonitor:
                     if pos_amt == 0:
                         continue
                     
-                    # Get unrealized PNL
                     unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
                     
-                    # Check if PNL dropped below trigger
                     if unrealized_pnl <= trigger_pnl:
-                        print(f"🚨 RECOVERY TETİKLENDİ: {pos.symbol} {pos.side} | PNL: ${unrealized_pnl:.2f} <= ${trigger_pnl:.2f}")
-                        
-                        # Mark as in recovery to prevent duplicate triggers
-                        self.positions_in_recovery.add(pos_id)
-                        
-                        try:
-                            # Execute recovery
-                            success, message = self.strategy.execute_recovery(
-                                position_db_id=pos_id,
-                                add_amount_usdt=add_amount,
-                                new_tp_usdt=tp_usdt,
-                                new_sl_usdt=sl_usdt
-                            )
-                            
-                            if success:
-                                # Update recovery count in database
-                                pos_record = db.query(Position).filter(Position.id == pos_id).first()
-                                if pos_record:
-                                    current_count = pos_record.recovery_count or 0
-                                    pos_record.recovery_count = current_count + 1
-                                    pos_record.last_recovery_at = datetime.now(timezone.utc)
-                                    db.commit()
-                                print(f"✅ {message}")
-                            else:
-                                print(f"❌ Recovery başarısız: {message}")
-                        finally:
-                            # Remove from recovery set after completion
-                            self.positions_in_recovery.discard(pos_id)
-                    
+                        positions_to_recover.append({
+                            'pos_id': pos_id,
+                            'symbol': str(pos.symbol),
+                            'side': str(pos.side),
+                            'unrealized_pnl': unrealized_pnl
+                        })
             finally:
                 db.close()
+            
+            # Process each position for recovery (separate DB session per recovery)
+            for pos_data in positions_to_recover:
+                pos_id = pos_data['pos_id']
+                
+                if pos_id in self.positions_in_recovery:
+                    continue
+                
+                print(f"🚨 RECOVERY TETİKLENDİ: {pos_data['symbol']} {pos_data['side']} | PNL: ${pos_data['unrealized_pnl']:.2f} <= ${trigger_pnl:.2f}")
+                
+                self.positions_in_recovery.add(pos_id)
+                
+                try:
+                    success, message = self.strategy.execute_recovery(
+                        position_db_id=pos_id,
+                        add_amount_usdt=add_amount,
+                        new_tp_usdt=tp_usdt,
+                        new_sl_usdt=sl_usdt
+                    )
+                    
+                    if success:
+                        print(f"✅ {message}")
+                    else:
+                        print(f"❌ Recovery başarısız: {message}")
+                        
+                except Exception as e:
+                    print(f"❌ Recovery exception: {pos_data['symbol']} {pos_data['side']} | Hata: {e}")
+                finally:
+                    self.positions_in_recovery.discard(pos_id)
                 
         except Exception as e:
             print(f"Error checking recovery: {e}")
+            self.positions_in_recovery.clear()
     
     def check_positions(self):
         try:
