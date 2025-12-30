@@ -1413,12 +1413,25 @@ def show_settings_page():
         
         if run_sql and sql_input:
             from sqlalchemy import text
+            import pandas as pd
             db = SessionLocal()
             try:
                 # DML/DDL işlemleri için execute kullanıyoruz
-                db.execute(text(sql_input))
-                db.commit()
-                st.success("✅ SQL komutu başarıyla çalıştırıldı!")
+                result = db.execute(text(sql_input))
+                
+                # Eğer bir SELECT sorgusuysa sonuçları göster
+                if sql_input.strip().upper().startswith("SELECT"):
+                    df = pd.DataFrame(result.fetchall(), columns=result.keys())
+                    if not df.empty:
+                        st.dataframe(df)
+                        st.success(f"✅ Sorgu başarılı! {len(df)} kayıt bulundu.")
+                    else:
+                        st.info("ℹ️ Sorgu başarılı ancak sonuç dönmedi.")
+                else:
+                    db.commit()
+                    st.success("✅ SQL komutu başarıyla çalıştırıldı!")
+                    if result.rowcount > 0:
+                        st.info(f"ℹ️ Etkilenen satır sayısı: {result.rowcount}")
             except Exception as e:
                 db.rollback()
                 st.error(f"❌ SQL Hatası: {str(e)}")
