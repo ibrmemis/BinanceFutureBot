@@ -970,15 +970,22 @@ def show_orders_page():
                 trigger_display = "N/A"
             
             # Calculate expected PNL if this order triggers
+            # OKX contract values: BTC=0.01, ETH=0.1, SOL=1
+            ct_val_map = {
+                'BTC-USDT-SWAP': 0.01,
+                'ETH-USDT-SWAP': 0.1,
+                'SOL-USDT-SWAP': 1.0
+            }
             expected_pnl = "N/A"
             try:
                 if entry_price and entry_price > 0 and trigger_px and size:
                     trigger_price_float = float(trigger_px)
                     size_float = float(size)
+                    ct_val = ct_val_map.get(inst_id, 1.0)
                     if pos_side == "long":
-                        pnl_value = (trigger_price_float - entry_price) * size_float
+                        pnl_value = (trigger_price_float - entry_price) * size_float * ct_val
                     else:  # short
-                        pnl_value = (entry_price - trigger_price_float) * size_float
+                        pnl_value = (entry_price - trigger_price_float) * size_float * ct_val
                     pnl_color = "🟢" if pnl_value >= 0 else "🔴"
                     expected_pnl = f"{pnl_color} ${pnl_value:+.2f}"
             except (ValueError, TypeError):
