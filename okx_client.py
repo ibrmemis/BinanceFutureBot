@@ -210,13 +210,14 @@ class OKXTestnetClient:
         
         return 1.0
     
-    def round_to_lot_size(self, quantity: float, lot_size: float) -> float:
-        """Round quantity to nearest lot size multiple"""
+    def round_to_lot_size(self, quantity: float, lot_size: float) -> int:
+        """Round quantity to nearest lot size multiple (always returns integer for SWAP)"""
         import math
         if lot_size <= 0:
-            return quantity
-        rounded = math.floor(quantity / lot_size) * lot_size
-        return max(lot_size, rounded)
+            lot_size = 1.0
+        # For SWAP perpetuals, quantity must be integer (number of contracts)
+        rounded = int(math.floor(quantity / lot_size) * lot_size)
+        return max(1, rounded)
     
     def get_symbol_price(self, symbol: str) -> Optional[float]:
         if not self.market_api:

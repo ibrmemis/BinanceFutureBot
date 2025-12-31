@@ -12,7 +12,7 @@ class Try1Strategy:
         leverage: int,
         current_price: float,
         symbol: str | None = None
-    ) -> float:
+    ) -> int:
         # Get contract value from OKX API (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
         if symbol:
             contract_value = self.client.get_contract_value(symbol)
@@ -26,11 +26,11 @@ class Try1Strategy:
         contract_usdt_value = contract_value * current_price
         exact_contracts = amount_usdt / contract_usdt_value
         
-        # Round to lot size (OKX requires order quantity to be multiple of lotSz)
+        # Round to lot size (OKX SWAP requires integer contracts)
         contracts = self.client.round_to_lot_size(exact_contracts, lot_size)
         
-        # Ensure minimum lot size
-        return max(lot_size, contracts)
+        # Ensure minimum 1 contract
+        return max(1, contracts)
     
     def calculate_tp_sl_prices(
         self,
