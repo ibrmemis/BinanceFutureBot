@@ -136,16 +136,21 @@ class PositionMonitor:
             recovery_settings = self._load_recovery_settings()
             
             if not recovery_settings.get('enabled', False):
+                print("🔍 Recovery: DEVRE DIŞI (recovery_enabled=false)")
                 return
             
             self._ensure_strategy()
             if not self.strategy or not self.strategy.client.is_configured():
+                print("🔍 Recovery: Strateji veya API yapılandırılmamış")
                 return
             
             steps = recovery_settings.get('steps', [])
             
             if not steps:
+                print("🔍 Recovery: Hiç step tanımlanmamış")
                 return
+            
+            print(f"🔍 Recovery kontrol: {len(steps)} basamak aktif")
             
             # Collect positions that need recovery (don't hold DB session during API calls)
             positions_to_recover = []
@@ -153,11 +158,13 @@ class PositionMonitor:
             db = SessionLocal()
             try:
                 open_positions = db.query(Position).filter(Position.is_open == True).all()
+                print(f"🔍 Recovery: {len(open_positions)} açık pozisyon bulundu (DB'de is_open=True)")
                 
                 for pos in open_positions:
                     pos_id = pos.id
                     
                     if pos_id in self.positions_in_recovery:
+                        print(f"  ⏳ {pos.symbol} {pos.side} ID:{pos_id} - Zaten recovery işleminde")
                         continue
                     
                     # Get current recovery count
@@ -165,6 +172,7 @@ class PositionMonitor:
                     
                     # Check if all steps exhausted
                     if current_recovery_count >= len(steps):
+                        print(f"  ⏹️ {pos.symbol} {pos.side} ID:{pos_id} - Tüm basamaklar tükendi (recovery_count={current_recovery_count})")
                         continue  # All recovery steps used, skip this position
                     
                     # Get the next step's trigger, add amount, and per-step TP/SL
@@ -178,13 +186,17 @@ class PositionMonitor:
                     okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
                     
                     if not okx_pos:
+                        print(f"  ❓ {pos.symbol} {pos.side} ID:{pos_id} - OKX'te pozisyon bulunamadı")
                         continue
                     
                     pos_amt = abs(float(okx_pos.get('positionAmt', 0)))
                     if pos_amt == 0:
+                        print(f"  ❓ {pos.symbol} {pos.side} ID:{pos_id} - OKX'te miktar 0")
                         continue
                     
                     unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                    
+                    print(f"  📊 {pos.symbol} {pos.side} ID:{pos_id} | PNL: ${unrealized_pnl:.2f} | Sonraki tetik: ${trigger_pnl:.2f} | recovery_count: {current_recovery_count}")
                     
                     if unrealized_pnl <= trigger_pnl:
                         positions_to_recover.append({
