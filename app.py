@@ -969,6 +969,21 @@ def show_orders_page():
             except (ValueError, TypeError):
                 trigger_display = "N/A"
             
+            # Calculate expected PNL if this order triggers
+            expected_pnl = "N/A"
+            try:
+                if entry_price and entry_price > 0 and trigger_px and size:
+                    trigger_price_float = float(trigger_px)
+                    size_float = float(size)
+                    if pos_side == "long":
+                        pnl_value = (trigger_price_float - entry_price) * size_float
+                    else:  # short
+                        pnl_value = (entry_price - trigger_price_float) * size_float
+                    pnl_color = "🟢" if pnl_value >= 0 else "🔴"
+                    expected_pnl = f"{pnl_color} ${pnl_value:+.2f}"
+            except (ValueError, TypeError):
+                expected_pnl = "N/A"
+            
             table_data.append({
                 "Coin": inst_id,
                 "Pozisyon": f"{direction_color} {pos_side.upper()}",
@@ -976,7 +991,7 @@ def show_orders_page():
                 "Trigger Fiyat": trigger_display,
                 "Miktar": size,
                 "Durum": f"{state_emoji} {state}",
-                "Emir ID": algo_id
+                "Beklenen PNL": expected_pnl
             })
         
         df = pd.DataFrame(table_data)
