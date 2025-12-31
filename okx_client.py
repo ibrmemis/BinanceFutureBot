@@ -237,6 +237,11 @@ class OKXTestnetClient:
         try:
             inst_id = self.convert_symbol_to_okx(symbol)
             
+            lot_size = self.get_lot_size(symbol)
+            rounded_quantity = self.round_to_lot_size(quantity, lot_size)
+            
+            print(f"📦 Market order: {symbol} {side} | qty: {quantity} -> {rounded_quantity} (lot: {lot_size})")
+            
             okx_side = "buy" if side.upper() == "LONG" else "sell"
             okx_pos_side = "long" if side.upper() == "LONG" else "short"
             
@@ -246,7 +251,7 @@ class OKXTestnetClient:
                 side=okx_side,
                 posSide=okx_pos_side,
                 ordType="market",
-                sz=str(quantity)
+                sz=str(rounded_quantity)
             )
             
             if result.get('code') == '0' and result.get('data'):
@@ -298,10 +303,12 @@ class OKXTestnetClient:
             inst_id = self.convert_symbol_to_okx(symbol)
             close_side = "sell" if side.upper() == "LONG" else "buy"
             
+            lot_size = self.get_lot_size(symbol)
+            rounded_quantity = self.round_to_lot_size(quantity, lot_size)
+            
             tp_order_id = None
             sl_order_id = None
             
-            # Validasyon için entry_price kullan (mevcut fiyat değişmiş olabilir)
             validation_price = entry_price
             
             if tp_price:
@@ -315,7 +322,7 @@ class OKXTestnetClient:
                         side=close_side,
                         posSide=position_side,
                         ordType="trigger",
-                        sz=str(quantity),
+                        sz=str(rounded_quantity),
                         triggerPx=str(round(tp_price, 4)),
                         orderPx="-1"
                     )
@@ -338,7 +345,7 @@ class OKXTestnetClient:
                         side=close_side,
                         posSide=position_side,
                         ordType="trigger",
-                        sz=str(quantity),
+                        sz=str(rounded_quantity),
                         triggerPx=str(round(sl_price, 4)),
                         orderPx="-1"
                     )
