@@ -463,11 +463,8 @@ class OKXTestnetClient:
             inst_id = self.convert_symbol_to_okx(symbol)
             result = self.account_api.get_positions(instType="SWAP", instId=inst_id)
             
-            print(f"🔎 get_position({symbol} -> {inst_id}, {position_side}) | API result: code={result.get('code')}, data_count={len(result.get('data', []))}")
-            
             if result.get('code') == '0' and result.get('data'):
                 for pos in result['data']:
-                    print(f"   📍 OKX pos: instId={pos.get('instId')}, posSide={pos.get('posSide')}, pos={pos.get('pos')}, upl={pos.get('upl')}")
                     if pos.get('posSide') == position_side:
                         return {
                             'positionAmt': pos.get('pos', '0'),
@@ -477,7 +474,6 @@ class OKXTestnetClient:
                             'leverage': pos.get('lever', '1'),
                             'posId': pos.get('posId', None)
                         }
-                print(f"   ⚠️ Aranan posSide={position_side} bulunamadı")
             return {'positionAmt': '0', 'posId': None}
         except Exception as e:
             print(f"Error getting position: {e}")
