@@ -210,6 +210,39 @@ class OKXTestnetClient:
         
         return 1.0
     
+    def get_tick_size(self, symbol: str) -> str:
+        """Get tick size (tickSz) for a symbol from OKX API - minimum price step"""
+        if not self.public_api:
+            return "0.0001"
+        
+        inst_id = self.convert_symbol_to_okx(symbol)
+        try:
+            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            if result.get('code') == '0' and result.get('data'):
+                tick_sz = result['data'][0].get('tickSz', '0.0001')
+                return tick_sz
+        except Exception as e:
+            print(f"Error getting tick size: {e}")
+        
+        return "0.0001"
+    
+    def format_price(self, price: float, tick_size: str) -> str:
+        """Format price according to tick size precision"""
+        from decimal import Decimal, ROUND_DOWN
+        try:
+            tick_decimal = Decimal(tick_size)
+            price_decimal = Decimal(str(price))
+            # Round down to tick size
+            rounded = (price_decimal / tick_decimal).quantize(Decimal('1'), rounding=ROUND_DOWN) * tick_decimal
+            # Get decimal places from tick size
+            if '.' in tick_size:
+                decimal_places = len(tick_size.split('.')[1])
+            else:
+                decimal_places = 0
+            return f"{float(rounded):.{decimal_places}f}"
+        except Exception:
+            return str(price)
+    
     def round_to_lot_size(self, quantity: float, lot_size: float) -> int:
         """Round quantity to nearest lot size multiple (always returns integer for SWAP)"""
         import math
@@ -312,11 +345,15 @@ class OKXTestnetClient:
             
             validation_price = entry_price
             
-            if tp_price:
+            # Get tick size for proper price formatting
+            tick_size = self.get_tick_size(symbol)
+            
+            if tp_price and tp_price > 0:
                 is_valid_tp = (side.upper() == "LONG" and tp_price > validation_price) or \
                               (side.upper() == "SHORT" and tp_price < validation_price)
                 
                 if is_valid_tp:
+                    formatted_tp = self.format_price(tp_price, tick_size)
                     tp_result = self.trade_api.place_algo_order(
                         instId=inst_id,
                         tdMode="cross",
@@ -324,22 +361,23 @@ class OKXTestnetClient:
                         posSide=position_side,
                         ordType="trigger",
                         sz=str(rounded_quantity),
-                        triggerPx=str(round(tp_price, 4)),
+                        triggerPx=formatted_tp,
                         orderPx="-1"
                     )
                     if tp_result.get('code') == '0' and tp_result.get('data'):
                         tp_order_id = tp_result['data'][0]['algoId']
-                        print(f"TP order placed: {tp_order_id} @ ${tp_price:.4f} (entry: ${entry_price:.4f})")
+                        print(f"TP order placed: {tp_order_id} @ {formatted_tp}")
                     else:
                         print(f"TP order failed: {tp_result}")
                 else:
-                    print(f"Invalid TP price: ${tp_price:.4f} (entry: ${entry_price:.4f}, side: {side})")
+                    print(f"Invalid TP price: {tp_price} (entry: {entry_price}, side: {side})")
             
-            if sl_price:
+            if sl_price and sl_price > 0:
                 is_valid_sl = (side.upper() == "LONG" and sl_price < validation_price) or \
                               (side.upper() == "SHORT" and sl_price > validation_price)
                 
                 if is_valid_sl:
+                    formatted_sl = self.format_price(sl_price, tick_size)
                     sl_result = self.trade_api.place_algo_order(
                         instId=inst_id,
                         tdMode="cross",
@@ -347,16 +385,16 @@ class OKXTestnetClient:
                         posSide=position_side,
                         ordType="trigger",
                         sz=str(rounded_quantity),
-                        triggerPx=str(round(sl_price, 4)),
+                        triggerPx=formatted_sl,
                         orderPx="-1"
                     )
                     if sl_result.get('code') == '0' and sl_result.get('data'):
                         sl_order_id = sl_result['data'][0]['algoId']
-                        print(f"SL order placed: {sl_order_id} @ ${sl_price:.4f} (entry: ${entry_price:.4f})")
+                        print(f"SL order placed: {sl_order_id} @ {formatted_sl}")
                     else:
                         print(f"SL order failed: {sl_result}")
                 else:
-                    print(f"Invalid SL price: ${sl_price:.4f} (entry: ${entry_price:.4f}, side: {side})")
+                    print(f"Invalid SL price: {sl_price} (entry: {entry_price}, side: {side})")
             
             return tp_order_id, sl_order_id
             
