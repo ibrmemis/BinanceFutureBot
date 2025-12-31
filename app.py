@@ -965,7 +965,7 @@ def show_orders_page():
             state_emoji = "✅" if state == "live" else "⏸️"
             
             try:
-                trigger_display = f"${float(trigger_px):.4f}" if trigger_px and trigger_px != '' else "N/A"
+                trigger_display = f"${float(trigger_px):.2f}" if trigger_px and trigger_px != '' else "N/A"
             except (ValueError, TypeError):
                 trigger_display = "N/A"
             
