@@ -902,8 +902,8 @@ def show_history_page():
 def show_orders_page():
     from streamlit_autorefresh import st_autorefresh
     
-    # Auto-refresh every 10 seconds
-    st_autorefresh(interval=10000, key="orders_autorefresh")
+    # Auto-refresh every 60 seconds
+    st_autorefresh(interval=60000, key="orders_autorefresh")
     
     st.header("📋 Strateji Emirleri (TP/SL)")
     
