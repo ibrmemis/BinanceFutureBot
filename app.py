@@ -974,6 +974,16 @@ def show_orders_page():
             symbol_base = inst_id.replace('-USDT-SWAP', 'USDT') if inst_id else ''
             ct_val = client.get_contract_value(symbol_base) if symbol_base else 1.0
             
+            # Calculate position size in USDT
+            position_size_usdt = "N/A"
+            try:
+                if size and entry_price and entry_price > 0:
+                    size_float = float(size)
+                    position_value = size_float * ct_val * entry_price
+                    position_size_usdt = f"${position_value:.2f}"
+            except (ValueError, TypeError):
+                position_size_usdt = size
+            
             expected_pnl = "N/A"
             try:
                 if entry_price and entry_price > 0 and trigger_px and size:
@@ -993,7 +1003,7 @@ def show_orders_page():
                 "Pozisyon": f"{direction_color} {pos_side.upper()}",
                 "Tür": trigger_type,
                 "Trigger Fiyat": trigger_display,
-                "Miktar": size,
+                "Pozisyon Değeri": position_size_usdt,
                 "Durum": f"{state_emoji} {state}",
                 "Beklenen PNL": expected_pnl
             })
