@@ -899,10 +899,12 @@ def show_history_page():
             db.close()
 
 def show_orders_page():
-    from streamlit_autorefresh import st_autorefresh
-    
-    # Auto-refresh every 60 seconds
-    st_autorefresh(interval=60000, key="orders_autorefresh")
+    # Auto-refresh every 60 seconds (if module available)
+    try:
+        from streamlit_autorefresh import st_autorefresh
+        st_autorefresh(interval=60000, key="orders_autorefresh")
+    except ImportError:
+        pass  # Module not available, skip auto-refresh
     
     st.header("📋 Strateji Emirleri (TP/SL)")
     
