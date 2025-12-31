@@ -900,6 +900,11 @@ def show_history_page():
             db.close()
 
 def show_orders_page():
+    from streamlit_autorefresh import st_autorefresh
+    
+    # Auto-refresh every 10 seconds
+    st_autorefresh(interval=10000, key="orders_autorefresh")
+    
     st.header("📋 Strateji Emirleri (TP/SL)")
     
     col1, col2 = st.columns([3, 1])
@@ -919,12 +924,15 @@ def show_orders_page():
         positions = client.get_all_positions()
     
     position_map = {}
+    mark_price_map = {}
     for pos in positions:
         inst_id = pos.get('instId', '')
         pos_side = pos.get('posSide', '')
         entry_px = pos.get('entryPrice', '0')
+        mark_px = pos.get('markPrice', '0')
         try:
             position_map[f"{inst_id}_{pos_side}"] = float(entry_px)
+            mark_price_map[inst_id] = float(mark_px)
         except (ValueError, TypeError):
             pass
     
@@ -998,18 +1006,65 @@ def show_orders_page():
             except (ValueError, TypeError):
                 expected_pnl = "N/A"
             
+            # Calculate distance to trigger as percentage (0-100)
+            distance_pct = 0.0
+            distance_usdt = 0.0
+            is_tp = "TP" in trigger_type
+            try:
+                current_price = mark_price_map.get(inst_id, 0)
+                trigger_price_float = float(trigger_px) if trigger_px else 0
+                
+                if current_price > 0 and trigger_price_float > 0 and entry_price and entry_price > 0:
+                    # Total distance from entry to trigger
+                    total_distance = abs(trigger_price_float - entry_price)
+                    # Remaining distance from current to trigger
+                    remaining_distance = abs(trigger_price_float - current_price)
+                    
+                    if total_distance > 0:
+                        # Percentage of distance covered (100% = at trigger, 0% = at entry)
+                        distance_pct = max(0, min(100, (1 - remaining_distance / total_distance) * 100))
+                    
+                    # Calculate remaining distance in USDT
+                    if size:
+                        size_float = float(size)
+                        distance_usdt = remaining_distance * size_float * ct_val
+            except (ValueError, TypeError, ZeroDivisionError):
+                pass
+            
             table_data.append({
                 "Coin": inst_id,
                 "Pozisyon": f"{direction_color} {pos_side.upper()}",
                 "Tür": trigger_type,
                 "Trigger Fiyat": trigger_display,
                 "Pozisyon Değeri": position_size_usdt,
-                "Durum": f"{state_emoji} {state}",
+                "Tetik Mesafesi": distance_pct,
+                "Kalan USDT": distance_usdt,
+                "is_tp": is_tp,
                 "Beklenen PNL": expected_pnl
             })
         
         df = pd.DataFrame(table_data)
-        st.dataframe(df, width="stretch", hide_index=True)
+        
+        # Use column_config with ProgressColumn for distance visualization
+        st.dataframe(
+            df,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Tetik Mesafesi": st.column_config.ProgressColumn(
+                    "Tetik Mesafesi",
+                    help="Trigger fiyata yakınlık (100% = tetiklendi)",
+                    format="%.0f%%",
+                    min_value=0,
+                    max_value=100,
+                ),
+                "Kalan USDT": st.column_config.NumberColumn(
+                    "Kalan $",
+                    format="$%.2f"
+                ),
+                "is_tp": None,  # Hide this helper column
+            }
+        )
         
         st.divider()
         st.subheader("🛠️ Emir İşlemleri")
