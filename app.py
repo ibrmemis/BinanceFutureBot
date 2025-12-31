@@ -701,12 +701,11 @@ def show_active_positions_page():
                     "Yön": f"{direction_icon} {side}",
                     "Kaldıraç": f"{leverage}x",
                     "Büyüklük (USDT)": f"${notional_usd:.2f}",
-                    "Giriş": f"${entry_price:.4f}",
-                    "Şu an": f"${current_price:.4f}" if current_price else "N/A",
+                    "Giriş": f"${entry_price:.2f}",
+                    "Şu an": f"${current_price:.2f}" if current_price else "N/A",
                     "PnL": f"{pnl_icon} ${unrealized_pnl:.2f}",
-                    "TP Hedef": f"${tp_price:.4f}" if tp_price else "N/A",
-                    "SL Hedef": f"${sl_price:.4f}" if sl_price else "N/A",
-                    "PosID": pos_id
+                    "TP Hedef": f"${tp_price:.2f}" if tp_price else "N/A",
+                    "SL Hedef": f"${sl_price:.2f}" if sl_price else "N/A"
                 })
             
             df = pd.DataFrame(table_data)
