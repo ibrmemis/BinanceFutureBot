@@ -478,6 +478,8 @@ class PositionMonitor:
                         pos.closed_at = None
                         pos.pnl = None
                         pos.close_reason = None
+                        pos.recovery_count = 0
+                        pos.last_recovery_at = None
                         
                         db.commit()
                         
