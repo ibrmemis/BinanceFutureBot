@@ -249,6 +249,13 @@ class Try1Strategy:
             leverage = int(pos.leverage)
             position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
             
+            # Use ORIGINAL TP/SL values (user preference: TP/SL should not change during recovery)
+            # If position has no TP/SL set, skip recovery
+            if not pos.tp_usdt or not pos.sl_usdt:
+                return False, "Pozisyonda TP/SL değerleri tanımlı değil, recovery yapılamaz"
+            original_tp_usdt = float(pos.tp_usdt)
+            original_sl_usdt = float(pos.sl_usdt)
+            
             # Verify position exists on OKX before proceeding
             okx_pos_check = self.client.get_position(symbol, position_side)
             if not okx_pos_check or abs(float(okx_pos_check.get('positionAmt', 0))) == 0:
@@ -294,12 +301,12 @@ class Try1Strategy:
             if new_quantity == 0:
                 return False, "Pozisyon miktarı 0"
             
-            # Step 5: Calculate new TP/SL prices based on updated position
+            # Step 5: Calculate new TP/SL prices based on updated position (using ORIGINAL TP/SL values)
             tp_price, sl_price = self.calculate_tp_sl_prices(
                 entry_price=new_entry_price,
                 side=side,
-                tp_usdt=new_tp_usdt,
-                sl_usdt=new_sl_usdt,
+                tp_usdt=original_tp_usdt,
+                sl_usdt=original_sl_usdt,
                 quantity=new_quantity,
                 symbol=symbol
             )
@@ -317,15 +324,16 @@ class Try1Strategy:
                 position_side=position_side
             )
             
-            # Step 7: Update database record (amount_usdt stays unchanged - user preference)
+            # Step 7: Update database record (amount_usdt and tp_usdt/sl_usdt stay unchanged - user preference)
             original_amount = float(pos.amount_usdt)
+            original_tp = float(pos.tp_usdt) if pos.tp_usdt else 0
+            original_sl = float(pos.sl_usdt) if pos.sl_usdt else 0
             
-            # Update position fields (NOT updating amount_usdt - keeping original value)
+            # Update position fields (NOT updating amount_usdt, tp_usdt, sl_usdt - keeping original values)
             pos.entry_price = new_entry_price
             pos.quantity = new_quantity
             pos.position_id = new_pos_id
-            pos.tp_usdt = new_tp_usdt
-            pos.sl_usdt = new_sl_usdt
+            # TP/SL values preserved - only order IDs updated
             pos.tp_order_id = tp_order_id
             pos.sl_order_id = sl_order_id
             

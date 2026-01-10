@@ -499,36 +499,70 @@ def show_new_trade_page():
                     st.info("Açık pozisyon bulunmuyor")
                 else:
                     for pos in open_positions:
-                        with st.container():
-                            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                        direction_icon = "🟢" if pos.side == "LONG" else "🔴"
+                        reopen_info = ""
+                        if monitor and pos.id in monitor.closed_positions_for_reopen:
+                            from datetime import timedelta
+                            closed_time = monitor.closed_positions_for_reopen[pos.id]
+                            reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
+                            remaining = reopen_time - datetime.now(timezone.utc)
+                            if remaining.total_seconds() > 0:
+                                mins = int(remaining.total_seconds() // 60)
+                                secs = int(remaining.total_seconds() % 60)
+                                reopen_info = f" ⏱️{mins}:{secs:02d}"
+                        
+                        with st.expander(f"{direction_icon} {pos.symbol} {pos.side} #{pos.id}{reopen_info}", expanded=False):
+                            col_info, col_edit = st.columns([1, 2])
                             
-                            with col1:
-                                direction_icon = "🟢" if pos.side == "LONG" else "🔴"
-                                reopen_info = ""
-                                if monitor and pos.id in monitor.closed_positions_for_reopen:
-                                    from datetime import timedelta
-                                    closed_time = monitor.closed_positions_for_reopen[pos.id]
-                                    reopen_time = closed_time + timedelta(minutes=monitor.auto_reopen_delay_minutes)
-                                    remaining = reopen_time - datetime.now(timezone.utc)
-                                    if remaining.total_seconds() > 0:
-                                        mins = int(remaining.total_seconds() // 60)
-                                        secs = int(remaining.total_seconds() % 60)
-                                        reopen_info = f" ⏱️{mins}:{secs:02d}"
-                                st.markdown(f"**{direction_icon} {pos.symbol} {pos.side}** #{pos.id}{reopen_info}")
+                            with col_info:
+                                st.caption(f"Değer: ${pos.amount_usdt:.0f}" if pos.amount_usdt else "Değer: —")
+                                st.caption(f"Kaldıraç: {pos.leverage}x" if pos.leverage else "")
+                                st.caption(f"Recovery: {pos.recovery_count or 0}")
                             
-                            with col2:
-                                tp_str = f"${pos.tp_usdt:.0f}" if pos.tp_usdt else "—"
-                                sl_str = f"${pos.sl_usdt:.0f}" if pos.sl_usdt else "—"
-                                st.caption(f"TP: {tp_str} | SL: {sl_str}")
+                            with col_edit:
+                                edit_col1, edit_col2 = st.columns(2)
+                                with edit_col1:
+                                    new_tp = st.number_input(
+                                        "TP (USDT)", 
+                                        value=float(pos.tp_usdt) if pos.tp_usdt else 10.0,
+                                        min_value=0.0,
+                                        step=5.0,
+                                        key=f"edit_tp_{pos.id}"
+                                    )
+                                with edit_col2:
+                                    new_sl = st.number_input(
+                                        "SL (USDT)", 
+                                        value=float(pos.sl_usdt) if pos.sl_usdt else 10.0,
+                                        min_value=0.0,
+                                        step=5.0,
+                                        key=f"edit_sl_{pos.id}"
+                                    )
+                                
+                                new_amount = st.number_input(
+                                    "Değer (USDT)", 
+                                    value=float(pos.amount_usdt) if pos.amount_usdt else 100.0,
+                                    min_value=10.0,
+                                    step=50.0,
+                                    key=f"edit_amount_{pos.id}"
+                                )
                             
-                            with col3:
+                            btn_col1, btn_col2, btn_col3 = st.columns(3)
+                            with btn_col1:
+                                if st.button("💾 Kaydet", key=f"save_{pos.id}", use_container_width=True, type="primary"):
+                                    pos.tp_usdt = new_tp
+                                    pos.sl_usdt = new_sl
+                                    pos.amount_usdt = new_amount
+                                    db.commit()
+                                    clear_position_cache()
+                                    st.success("Kaydedildi!")
+                                    st.rerun()
+                            with btn_col2:
                                 if st.button("⏹️ Durdur", key=f"close_{pos.id}", use_container_width=True):
                                     setattr(pos, 'is_open', False)
                                     setattr(pos, 'closed_at', datetime.now(timezone.utc))
                                     db.commit()
                                     st.rerun()
-                            
-                            with col4:
+                            with btn_col3:
                                 if st.button("🗑️ Sil", key=f"delete_open_{pos.id}", use_container_width=True):
                                     db.delete(pos)
                                     db.commit()
@@ -547,26 +581,60 @@ def show_new_trade_page():
                     st.info("Kapalı pozisyon bulunmuyor")
                 else:
                     for pos in closed_positions:
-                        with st.container():
-                            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                        direction_icon = "🟢" if pos.side == "LONG" else "🔴"
+                        
+                        with st.expander(f"{direction_icon} {pos.symbol} {pos.side} #{pos.id}", expanded=False):
+                            col_info, col_edit = st.columns([1, 2])
                             
-                            with col1:
-                                direction_icon = "🟢" if pos.side == "LONG" else "🔴"
-                                st.markdown(f"**{direction_icon} {pos.symbol} {pos.side}** #{pos.id}")
+                            with col_info:
+                                st.caption(f"Değer: ${pos.amount_usdt:.0f}" if pos.amount_usdt else "Değer: —")
+                                st.caption(f"Kaldıraç: {pos.leverage}x" if pos.leverage else "")
+                                st.caption(f"Recovery: {pos.recovery_count or 0}")
                             
-                            with col2:
-                                tp_str = f"${pos.tp_usdt:.0f}" if pos.tp_usdt else "—"
-                                sl_str = f"${pos.sl_usdt:.0f}" if pos.sl_usdt else "—"
-                                st.caption(f"TP: {tp_str} | SL: {sl_str}")
+                            with col_edit:
+                                edit_col1, edit_col2 = st.columns(2)
+                                with edit_col1:
+                                    new_tp = st.number_input(
+                                        "TP (USDT)", 
+                                        value=float(pos.tp_usdt) if pos.tp_usdt else 10.0,
+                                        min_value=0.0,
+                                        step=5.0,
+                                        key=f"edit_tp_closed_{pos.id}"
+                                    )
+                                with edit_col2:
+                                    new_sl = st.number_input(
+                                        "SL (USDT)", 
+                                        value=float(pos.sl_usdt) if pos.sl_usdt else 10.0,
+                                        min_value=0.0,
+                                        step=5.0,
+                                        key=f"edit_sl_closed_{pos.id}"
+                                    )
+                                
+                                new_amount = st.number_input(
+                                    "Değer (USDT)", 
+                                    value=float(pos.amount_usdt) if pos.amount_usdt else 100.0,
+                                    min_value=10.0,
+                                    step=50.0,
+                                    key=f"edit_amount_closed_{pos.id}"
+                                )
                             
-                            with col3:
-                                if st.button("▶️ Başlat", key=f"open_{pos.id}", use_container_width=True, type="primary"):
+                            btn_col1, btn_col2, btn_col3 = st.columns(3)
+                            with btn_col1:
+                                if st.button("💾 Kaydet", key=f"save_closed_{pos.id}", use_container_width=True, type="primary"):
+                                    pos.tp_usdt = new_tp
+                                    pos.sl_usdt = new_sl
+                                    pos.amount_usdt = new_amount
+                                    db.commit()
+                                    clear_position_cache()
+                                    st.success("Kaydedildi!")
+                                    st.rerun()
+                            with btn_col2:
+                                if st.button("▶️ Başlat", key=f"open_{pos.id}", use_container_width=True):
                                     setattr(pos, 'is_open', True)
                                     setattr(pos, 'closed_at', None)
                                     db.commit()
                                     st.rerun()
-                            
-                            with col4:
+                            with btn_col3:
                                 if st.button("🗑️ Sil", key=f"delete_closed_{pos.id}", use_container_width=True):
                                     db.delete(pos)
                                     db.commit()
