@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading_bot_postgres
+    environment:
+      POSTGRES_DB: trading_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_change_this}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trading_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trading_network
+
+  # Trading Bot Application
+  trading_bot:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading_bot_app
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-secure_password_change_this}@postgres:5432/trading_bot
+      - OKX_DEMO_API_KEY=${OKX_DEMO_API_KEY}
+      - OKX_DEMO_API_SECRET=${OKX_DEMO_API_SECRET}
+      - OKX_DEMO_PASSPHRASE=${OKX_DEMO_PASSPHRASE}
+      - SESSION_SECRET=${SESSION_SECRET}
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - trading_network
+
+  # Redis for Caching (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: trading_bot_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - trading_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  trading_network:
+    driver: bridge

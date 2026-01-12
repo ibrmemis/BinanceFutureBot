@@ -1,0 +1,11 @@
+streamlit>=1.51.0
+apscheduler>=3.11.0
+pandas>=2.3.3
+sqlalchemy>=2.0.44
+psycopg2-binary>=2.9.11
+cryptography>=46.0.3
+python-okx>=0.4.0
+streamlit-autorefresh>=1.0.1
+
+# Development and optimization dependencies
+typing-extensions>=4.4.0  # For modern type hints

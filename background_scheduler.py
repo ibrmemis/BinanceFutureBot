@@ -5,7 +5,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 from database import SessionLocal, Position, Settings
+from database_utils import get_db_session, DatabaseManager
 from trading_strategy import Try1Strategy
+from constants import (
+    SchedulerConstants, DatabaseConstants, TradingConstants,
+    ErrorMessages, SuccessMessages
+)
 
 class PositionMonitor:
     def __init__(self, auto_reopen_delay_minutes: int = None):
@@ -13,12 +18,12 @@ class PositionMonitor:
             'default': MemoryJobStore()
         }
         executors = {
-            'default': ThreadPoolExecutor(max_workers=3)
+            'default': ThreadPoolExecutor(max_workers=SchedulerConstants.MAX_WORKERS)
         }
         job_defaults = {
-            'coalesce': True,
-            'max_instances': 1,
-            'misfire_grace_time': 30
+            'coalesce': SchedulerConstants.COALESCE_JOBS,
+            'max_instances': SchedulerConstants.MAX_INSTANCES,
+            'misfire_grace_time': SchedulerConstants.MISFIRE_GRACE_TIME
         }
         self.scheduler = BackgroundScheduler(
             jobstores=jobstores,
@@ -37,36 +42,31 @@ class PositionMonitor:
             self._save_auto_reopen_delay(auto_reopen_delay_minutes)
     
     def _load_auto_reopen_delay(self) -> int:
-        """Load auto-reopen delay from database, default to 1 minute if not set"""
-        db = SessionLocal()
+        delay = DatabaseManager.get_setting(
+            DatabaseConstants.SETTING_AUTO_REOPEN_DELAY,
+            TradingConstants.DEFAULT_RECOVERY_DELAY
+        )
         try:
-            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
-            if setting:
-                return int(setting.value)
-            else:
-                # Default to 1 minute and save it
-                self._save_auto_reopen_delay(1)
-                return 1
-        finally:
-            db.close()
+            return int(delay)
+        except (ValueError, TypeError):
+            self._save_auto_reopen_delay(TradingConstants.DEFAULT_RECOVERY_DELAY)
+            return TradingConstants.DEFAULT_RECOVERY_DELAY
     
     def _load_recovery_settings(self) -> dict:
-        """Load recovery settings from database with multi-step support"""
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             settings = {}
             
-            # Recovery enabled
+            # Recovery enabled (default True)
             enabled = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
-            settings['enabled'] = enabled.value.lower() == 'true' if enabled else False
+            settings['enabled'] = enabled.value.lower() == 'true' if enabled else True
             
             # New TP (USDT) - same for all steps
             tp = db.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
-            settings['tp_usdt'] = float(tp.value) if tp else 50.0
+            settings['tp_usdt'] = float(tp.value) if tp else 8.0
             
             # New SL (USDT) - same for all steps
             sl = db.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
-            settings['sl_usdt'] = float(sl.value) if sl else 100.0
+            settings['sl_usdt'] = float(sl.value) if sl else 500.0
             
             # Load multi-step recovery settings with per-step TP/SL (up to 5 steps)
             steps = []
@@ -89,40 +89,18 @@ class PositionMonitor:
                         'sl_usdt': float(sl_step.value) if sl_step else settings.get('sl_usdt', 100.0)
                     })
             
-            # If no steps defined, use legacy single-step settings
+            # If no steps defined, use default values
             if not steps:
-                trigger = db.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
-                add_amount = db.query(Settings).filter(Settings.key == "recovery_add_amount").first()
-                steps.append({
-                    'trigger_pnl': float(trigger.value) if trigger else -50.0,
-                    'add_amount': float(add_amount.value) if add_amount else 100.0,
-                    'tp_usdt': settings.get('tp_usdt', 50.0),
-                    'sl_usdt': settings.get('sl_usdt', 100.0)
-                })
+                steps = [
+                    {'trigger_pnl': -50.0, 'add_amount': 3000.0, 'tp_usdt': 30.0, 'sl_usdt': 1200.0}
+                ]
             
             settings['steps'] = steps
             
             return settings
-        finally:
-            db.close()
     
     def _save_auto_reopen_delay(self, minutes: int):
-        """Save auto-reopen delay to database"""
-        db = SessionLocal()
-        try:
-            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
-            if setting:
-                setting.value = str(minutes)
-                setting.updated_at = datetime.now(timezone.utc)
-            else:
-                setting = Settings(key="auto_reopen_delay_minutes", value=str(minutes))
-                db.add(setting)
-            db.commit()
-        except Exception as e:
-            db.rollback()
-            print(f"Warning: Could not save auto_reopen_delay: {e}")
-        finally:
-            db.close()
+        DatabaseManager.set_setting(DatabaseConstants.SETTING_AUTO_REOPEN_DELAY, str(minutes))
     
     def _ensure_strategy(self):
         if self.strategy is None:
@@ -150,8 +128,7 @@ class PositionMonitor:
             # Collect positions that need recovery (don't hold DB session during API calls)
             positions_to_recover = []
             
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 open_positions = db.query(Position).filter(Position.is_open == True).all()
                 
                 for pos in open_positions:
@@ -198,8 +175,6 @@ class PositionMonitor:
                             'sl_usdt': step_sl_usdt,
                             'step_num': current_recovery_count + 1
                         })
-            finally:
-                db.close()
             
             # Process each position for recovery (separate DB session per recovery)
             for pos_data in positions_to_recover:
@@ -244,8 +219,7 @@ class PositionMonitor:
             # DO NOT call check_and_update_positions() - we don't want to auto-close positions
             # User controls position state manually via UI buttons
             
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Only check for positions that are OPEN in database but CLOSED on OKX
                 # This detects manual closures on OKX platform
                 all_open = db.query(Position).filter(
@@ -271,11 +245,140 @@ class PositionMonitor:
                         self.closed_positions_for_reopen[pos.id] = datetime.now(timezone.utc)
                         print(f"🔴 Pozisyon OKX'te manuel kapatılmış - queue'ya eklendi: {pos.symbol} {pos.side}")
                 
-            finally:
-                db.close()
-                
         except Exception as e:
             print(f"Error checking positions: {e}")
+    
+    def check_and_restore_tp_sl_orders(self):
+        """Check if TP/SL orders exist for open positions and restore if missing"""
+        try:
+            self._ensure_strategy()
+            if not self.strategy or not self.strategy.client.is_configured():
+                return
+            
+            with get_db_session() as db:
+                active_positions = db.query(Position).filter(Position.is_open == True).all()
+                
+                for pos in active_positions:
+                    position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
+                    
+                    # Get current position from OKX
+                    okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
+                    if not okx_pos or abs(float(okx_pos.get('positionAmt', 0))) == 0:
+                        continue
+                    
+                    # Get current PNL
+                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
+                    entry_price = float(okx_pos.get('entryPrice', 0))
+                    quantity = abs(float(okx_pos.get('positionAmt', 0)))
+                    
+                    # Get all orders for this position
+                    all_orders = self.strategy.client.get_all_open_orders(pos.symbol)
+                    inst_id = self.strategy.client.convert_symbol_to_okx(pos.symbol)
+                    
+                    # Check if TP/SL orders exist
+                    has_tp = False
+                    has_sl = False
+                    
+                    for order in all_orders:
+                        if order.get('instId') == inst_id and order.get('posSide') == position_side:
+                            trigger_px = float(order.get('triggerPx', 0))
+                            if pos.side == "LONG":
+                                if trigger_px > entry_price:
+                                    has_tp = True
+                                elif trigger_px < entry_price:
+                                    has_sl = True
+                            else:  # SHORT
+                                if trigger_px < entry_price:
+                                    has_tp = True
+                                elif trigger_px > entry_price:
+                                    has_sl = True
+                    
+                    # Use original TP/SL values if available
+                    tp_usdt = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
+                    sl_usdt = pos.original_sl_usdt if pos.original_sl_usdt is not None else pos.sl_usdt
+                    
+                    # Restore missing TP order
+                    if not has_tp and tp_usdt:
+                        # Check if TP target already reached
+                        if unrealized_pnl >= tp_usdt:
+                            print(f"🎯 TP hedefi zaten aşılmış ({unrealized_pnl:.2f} >= {tp_usdt}), pozisyon kapatılıyor: {pos.symbol} {pos.side}")
+                            # Close position immediately
+                            close_side = "sell" if pos.side == "LONG" else "buy"
+                            self.strategy.client.close_position_market(pos.symbol, close_side, int(quantity), position_side)
+                            pos.is_open = False
+                            pos.closed_at = datetime.now(timezone.utc)
+                            pos.pnl = unrealized_pnl
+                            pos.close_reason = "TP"
+                            db.commit()
+                        else:
+                            # Place TP order
+                            tp_price, _ = self.strategy.calculate_tp_sl_prices(
+                                entry_price, pos.side, tp_usdt, sl_usdt, quantity, pos.symbol
+                            )
+                            
+                            close_side = "sell" if pos.side == "LONG" else "buy"
+                            tick_size = self.strategy.client.get_tick_size(pos.symbol)
+                            formatted_tp = self.strategy.client.format_price(tp_price, tick_size)
+                            
+                            result = self.strategy.client.trade_api.place_algo_order(
+                                instId=inst_id,
+                                tdMode="cross",
+                                side=close_side,
+                                posSide=position_side,
+                                ordType="trigger",
+                                sz=str(int(quantity)),
+                                triggerPx=formatted_tp,
+                                orderPx="-1"
+                            )
+                            
+                            if result.get('code') == '0':
+                                tp_order_id = result['data'][0]['algoId']
+                                pos.tp_order_id = tp_order_id
+                                db.commit()
+                                print(f"✅ TP emri yeniden oluşturuldu: {pos.symbol} {pos.side} @ {formatted_tp}")
+                    
+                    # Restore missing SL order
+                    if not has_sl and sl_usdt:
+                        # Check if SL target already reached
+                        if unrealized_pnl <= -sl_usdt:
+                            print(f"🛡️ SL hedefi zaten aşılmış ({unrealized_pnl:.2f} <= -{sl_usdt}), pozisyon kapatılıyor: {pos.symbol} {pos.side}")
+                            # Close position immediately
+                            close_side = "sell" if pos.side == "LONG" else "buy"
+                            self.strategy.client.close_position_market(pos.symbol, close_side, int(quantity), position_side)
+                            pos.is_open = False
+                            pos.closed_at = datetime.now(timezone.utc)
+                            pos.pnl = unrealized_pnl
+                            pos.close_reason = "SL"
+                            db.commit()
+                        else:
+                            # Place SL order
+                            _, sl_price = self.strategy.calculate_tp_sl_prices(
+                                entry_price, pos.side, tp_usdt, sl_usdt, quantity, pos.symbol
+                            )
+                            
+                            close_side = "sell" if pos.side == "LONG" else "buy"
+                            tick_size = self.strategy.client.get_tick_size(pos.symbol)
+                            formatted_sl = self.strategy.client.format_price(sl_price, tick_size)
+                            
+                            result = self.strategy.client.trade_api.place_algo_order(
+                                instId=inst_id,
+                                tdMode="cross",
+                                side=close_side,
+                                posSide=position_side,
+                                ordType="trigger",
+                                sz=str(int(quantity)),
+                                triggerPx=formatted_sl,
+                                orderPx="-1"
+                            )
+                            
+                            if result.get('code') == '0':
+                                sl_order_id = result['data'][0]['algoId']
+                                pos.sl_order_id = sl_order_id
+                                db.commit()
+                                print(f"✅ SL emri yeniden oluşturuldu: {pos.symbol} {pos.side} @ {formatted_sl}")
+                
+        except Exception as e:
+            print(f"Error checking/restoring TP/SL orders: {e}")
     
     def cancel_orphaned_orders(self):
         try:
@@ -284,8 +387,7 @@ class PositionMonitor:
                 return
             
             # Database'den aktif pozisyonların TP/SL emir ID'lerini al
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 active_tp_sl_ids = set()
                 active_positions = db.query(Position).filter(Position.is_open == True).all()
                 for pos in active_positions:
@@ -293,8 +395,6 @@ class PositionMonitor:
                         active_tp_sl_ids.add(pos.tp_order_id)
                     if pos.sl_order_id:
                         active_tp_sl_ids.add(pos.sl_order_id)
-            finally:
-                db.close()
             
             # TÜM emir türlerini çek (trigger, conditional, iceberg, twap)
             all_orders = self.strategy.client.get_all_open_orders()
@@ -349,8 +449,7 @@ class PositionMonitor:
             if not self.strategy or not self.strategy.client.is_configured():
                 return
             
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 positions_to_reopen = []
                 positions_to_remove = []
                 current_time = datetime.now(timezone.utc)
@@ -431,12 +530,15 @@ class PositionMonitor:
                             print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
                             continue
                         
-                        # TP/SL fiyatlarını hesapla
+                        # TP/SL fiyatlarını hesapla (orijinal değerleri kullan)
+                        tp_usdt_for_reopen = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
+                        sl_usdt_for_reopen = pos.original_sl_usdt if pos.original_sl_usdt is not None else pos.sl_usdt
+
                         tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
                             entry_price=new_entry_price,
                             side=pos.side,
-                            tp_usdt=pos.tp_usdt,
-                            sl_usdt=pos.sl_usdt,
+                            tp_usdt=tp_usdt_for_reopen,
+                            sl_usdt=sl_usdt_for_reopen,
                             quantity=new_quantity,
                             symbol=pos.symbol
                         )
@@ -480,6 +582,9 @@ class PositionMonitor:
                         pos.close_reason = None
                         pos.recovery_count = 0
                         pos.last_recovery_at = None
+                        # Reset TP/SL to original values (not recovery values)
+                        pos.tp_usdt = tp_usdt_for_reopen
+                        pos.sl_usdt = sl_usdt_for_reopen
                         
                         db.commit()
                         
@@ -496,9 +601,6 @@ class PositionMonitor:
                 for pos_id in positions_to_remove:
                     if pos_id in self.closed_positions_for_reopen:
                         del self.closed_positions_for_reopen[pos_id]
-                        
-            finally:
-                db.close()
                 
         except Exception as e:
             print(f"Error reopening positions: {e}")
@@ -509,7 +611,7 @@ class PositionMonitor:
                 self.scheduler.add_job(
                     self.check_positions,
                     'interval',
-                    seconds=30,
+                    seconds=SchedulerConstants.POSITION_CHECK_INTERVAL,
                     id='position_checker',
                     replace_existing=True
                 )
@@ -517,15 +619,23 @@ class PositionMonitor:
                 self.scheduler.add_job(
                     self.cancel_orphaned_orders,
                     'interval',
-                    minutes=1,
+                    seconds=SchedulerConstants.ORDER_CLEANUP_INTERVAL,
                     id='order_canceller',
+                    replace_existing=True
+                )
+                
+                self.scheduler.add_job(
+                    self.check_and_restore_tp_sl_orders,
+                    'interval',
+                    seconds=SchedulerConstants.ORDER_CLEANUP_INTERVAL,
+                    id='tp_sl_restorer',
                     replace_existing=True
                 )
                 
                 self.scheduler.add_job(
                     self.reopen_closed_positions,
                     'interval',
-                    seconds=30,
+                    seconds=SchedulerConstants.POSITION_REOPEN_INTERVAL,
                     id='position_reopener',
                     replace_existing=True
                 )
@@ -533,7 +643,7 @@ class PositionMonitor:
                 self.scheduler.add_job(
                     self.check_recovery,
                     'interval',
-                    seconds=15,
+                    seconds=SchedulerConstants.RECOVERY_CHECK_INTERVAL,
                     id='recovery_checker',
                     replace_existing=True
                 )
@@ -595,8 +705,7 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
         manually_stopped = False
         
         # Auto-enable recovery when bot starts
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             recovery_setting = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
             if recovery_setting:
                 recovery_setting.value = "true"
@@ -605,8 +714,6 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
                 db.add(recovery_setting)
             db.commit()
             print("🛡️ Kurtarma özelliği otomatik aktifleştirildi")
-        finally:
-            db.close()
         
         if monitor is None:
             monitor = PositionMonitor(auto_reopen_delay_minutes)

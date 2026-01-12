@@ -1,130 +1,159 @@
 import os
+from typing import Dict, Optional, List, Any, Tuple
+from functools import wraps
 import okx.Account as Account
 import okx.Trade as Trade
 import okx.MarketData as MarketData
 import okx.PublicData as PublicData
-from typing import Dict, Optional, List
+from constants import (
+    OrderSide, PositionSide, OrderType, TradingMode, 
+    APIConstants, TradingConstants, ErrorMessages
+)
+
+
+def handle_okx_response(func):
+    """
+    Decorator to handle OKX API responses consistently.
+    Automatically checks for success code and handles errors.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+            if isinstance(result, dict) and result.get('code') == '0':
+                return result.get('data')
+            elif isinstance(result, dict):
+                print(f"OKX API Error in {func.__name__}: {result.get('msg', 'Unknown error')}")
+                return None
+            return result
+        except Exception as e:
+            print(f"Exception in {func.__name__}: {e}")
+            return None
+    return wrapper
+
 
 class OKXTestnetClient:
+    """
+    Modern OKX API client with improved error handling, type hints, and caching.
+    """
+    
     def __init__(self):
-        self.api_key = None
-        self.api_secret = None
-        self.passphrase = None
-        self.flag = "1"
+        self.api_key: Optional[str] = None
+        self.api_secret: Optional[str] = None
+        self.passphrase: Optional[str] = None
+        self.flag: str = APIConstants.OKX_FLAG_DEMO
         
-        self.account_api = None
-        self.trade_api = None
-        self.market_api = None
-        self.public_api = None
+        # API instances
+        self.account_api: Optional[Account.AccountAPI] = None
+        self.trade_api: Optional[Trade.TradeAPI] = None
+        self.market_api: Optional[MarketData.MarketAPI] = None
+        self.public_api: Optional[PublicData.PublicAPI] = None
         
         self._load_credentials()
-        
-        if self.api_key and self.api_secret and self.passphrase:
-            try:
-                self.account_api = Account.AccountAPI(
-                    self.api_key,
-                    self.api_secret,
-                    self.passphrase,
-                    False,
-                    self.flag
-                )
-                self.trade_api = Trade.TradeAPI(
-                    self.api_key,
-                    self.api_secret,
-                    self.passphrase,
-                    False,
-                    self.flag
-                )
-                self.market_api = MarketData.MarketAPI(
-                    self.api_key,
-                    self.api_secret,
-                    self.passphrase,
-                    False,
-                    self.flag
-                )
-                self.public_api = PublicData.PublicAPI(
-                    self.api_key,
-                    self.api_secret,
-                    self.passphrase,
-                    False,
-                    self.flag
-                )
-            except Exception as e:
-                print(f"Warning: Failed to initialize OKX client: {e}")
-                self.account_api = None
+        self._initialize_apis()
     
-    def _load_credentials(self):
+    def _load_credentials(self) -> None:
+        """Load API credentials from environment or database"""
         self.api_key = os.getenv("OKX_DEMO_API_KEY")
         self.api_secret = os.getenv("OKX_DEMO_API_SECRET")
         self.passphrase = os.getenv("OKX_DEMO_PASSPHRASE")
         
-        # Default flag to 1 (Demo) unless specified otherwise in DB
-        self.flag = "1"
+        # Default flag to demo unless specified otherwise in DB
+        self.flag = APIConstants.OKX_FLAG_DEMO
         
+        # Try to load from database if env vars not available
+        if not all([self.api_key, self.api_secret, self.passphrase]):
+            self._load_from_database()
+    
+    def _load_from_database(self) -> None:
+        """Load credentials from database based on current mode"""
         try:
             from database import SessionLocal, APICredentials
-            db = SessionLocal()
-            try:
+            with SessionLocal() as db:
                 creds = db.query(APICredentials).first()
                 if creds:
-                    # If environment variables are not set, use database credentials
-                    if not self.api_key or not self.api_secret or not self.passphrase:
-                        self.api_key, self.api_secret, self.passphrase = creds.get_credentials()
+                    # Determine which credentials to use
+                    is_demo = creds.is_demo
                     
-                    # Update flag based on is_demo setting in DB
-                    # is_demo=True -> flag="1", is_demo=False -> flag="0"
-                    self.flag = "1" if getattr(creds, 'is_demo', True) else "0"
-            finally:
-                db.close()
+                    if not all([self.api_key, self.api_secret, self.passphrase]):
+                        self.api_key, self.api_secret, self.passphrase = creds.get_credentials(is_demo=is_demo)
+                    
+                    # Update flag based on is_demo setting
+                    self.flag = APIConstants.OKX_FLAG_DEMO if is_demo else APIConstants.OKX_FLAG_LIVE
         except Exception as e:
-            pass
+            print(f"Warning: Could not load credentials from database: {e}")
+    
+    def _initialize_apis(self) -> None:
+        """Initialize OKX API instances if credentials are available"""
+        if not all([self.api_key, self.api_secret, self.passphrase]):
+            return
+        
+        try:
+            common_args = (self.api_key, self.api_secret, self.passphrase, False, self.flag)
+            
+            self.account_api = Account.AccountAPI(*common_args)
+            self.trade_api = Trade.TradeAPI(*common_args)
+            self.market_api = MarketData.MarketAPI(*common_args)
+            self.public_api = PublicData.PublicAPI(*common_args)
+            
+        except Exception as e:
+            print(f"Warning: Failed to initialize OKX APIs: {e}")
+            self._reset_apis()
+    
+    def _reset_apis(self) -> None:
+        """Reset all API instances to None"""
+        self.account_api = None
+        self.trade_api = None
+        self.market_api = None
+        self.public_api = None
     
     def is_configured(self) -> bool:
-        return (self.account_api is not None and 
-                self.api_key is not None and 
-                self.api_secret is not None and 
-                self.passphrase is not None)
+        """Check if client is properly configured"""
+        return (
+            self.account_api is not None and 
+            all([self.api_key, self.api_secret, self.passphrase])
+        )
     
-    def convert_symbol_to_okx(self, symbol: str) -> str:
+    @staticmethod
+    def convert_symbol_to_okx(symbol: str) -> str:
+        """Convert symbol format to OKX format (e.g., BTCUSDT -> BTC-USDT-SWAP)"""
         symbol = symbol.upper().replace("USDT", "")
         return f"{symbol}-USDT-SWAP"
     
-    def set_position_mode(self, mode: str = "long_short_mode") -> bool:
+    @handle_okx_response
+    def set_position_mode(self, mode: str = TradingMode.CROSS) -> bool:
+        """Set position mode (long_short_mode or net_mode)"""
         if not self.account_api:
             return False
-        try:
-            result = self.account_api.set_position_mode(posMode=mode)
-            if result.get('code') == '0':
-                return True
-            if 'Position mode is already set' in str(result):
-                return True
-            return False
-        except Exception as e:
-            if 'Position mode is already set' in str(e):
-                return True
-            print(f"Error setting position mode: {e}")
-            return False
+        
+        result = self.account_api.set_position_mode(posMode=mode)
+        
+        # Handle already set case
+        if 'Position mode is already set' in str(result):
+            return True
+        
+        return result.get('code') == '0'
     
-    def set_leverage(self, symbol: str, leverage: int, position_side: str = "long") -> bool:
+    @handle_okx_response
+    def set_leverage(self, symbol: str, leverage: int, position_side: str = PositionSide.LONG) -> bool:
+        """Set leverage for a symbol"""
         if not self.account_api:
             return False
-        try:
-            inst_id = self.convert_symbol_to_okx(symbol)
-            result = self.account_api.set_leverage(
-                instId=inst_id,
-                lever=str(leverage),
-                mgnMode="cross",
-                posSide=position_side
-            )
-            return result.get('code') == '0'
-        except Exception as e:
-            print(f"Error setting leverage: {e}")
-            return False
+        
+        inst_id = self.convert_symbol_to_okx(symbol)
+        result = self.account_api.set_leverage(
+            instId=inst_id,
+            lever=str(leverage),
+            mgnMode=TradingMode.CROSS,
+            posSide=position_side
+        )
+        return result
     
-    def get_account_balance(self, currency: str = "USDT") -> Optional[Dict]:
-        """Get account balance for a specific currency (default USDT)"""
+    def get_account_balance(self, currency: str = "USDT") -> Optional[Dict[str, float]]:
+        """Get account balance for a specific currency"""
         if not self.account_api:
             return None
+        
         try:
             result = self.account_api.get_account_balance(ccy=currency)
             if result.get('code') == '0' and result.get('data'):
@@ -145,13 +174,13 @@ class OKXTestnetClient:
             print(f"Error getting account balance: {e}")
             return None
     
-    def get_all_swap_symbols(self) -> list[str]:
-        """Get all available SWAP symbols from OKX API"""
+    def get_all_swap_symbols(self) -> List[str]:
+        """Get all available SWAP symbols from OKX API with caching"""
         if not self.public_api:
-            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+            return TradingConstants.POPULAR_SYMBOLS
         
         try:
-            result = self.public_api.get_instruments(instType='SWAP')
+            result = self.public_api.get_instruments(instType=APIConstants.INST_TYPE_SWAP)
             if result.get('code') == '0' and result.get('data'):
                 symbols = []
                 for instrument in result['data']:
@@ -161,32 +190,29 @@ class OKXTestnetClient:
                         symbol = inst_id.replace('-USDT-SWAP', '').replace('-', '') + 'USDT'
                         symbols.append(symbol)
                 return sorted(symbols)
-            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+            return TradingConstants.POPULAR_SYMBOLS
         except Exception as e:
             print(f"Error getting SWAP symbols: {e}")
-            return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+            return TradingConstants.POPULAR_SYMBOLS
     
     def get_contract_value(self, symbol: str) -> float:
         """Get contract value (ctVal) for a symbol from OKX API"""
+        # Use cached values for popular symbols
+        if symbol in TradingConstants.CONTRACT_VALUES:
+            return TradingConstants.CONTRACT_VALUES[symbol]
+        
         if not self.public_api:
-            # Default fallbacks if API not available
-            if 'ETH' in symbol.upper():
-                return 0.1
-            elif 'BTC' in symbol.upper():
-                return 0.01
-            else:
-                return 1.0
+            return TradingConstants.DEFAULT_LOT_SIZE
         
         inst_id = self.convert_symbol_to_okx(symbol)
         try:
-            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            result = self.public_api.get_instruments(instType=APIConstants.INST_TYPE_SWAP, instId=inst_id)
             if result.get('code') == '0' and result.get('data'):
-                ct_val = float(result['data'][0].get('ctVal', 1))
-                return ct_val
+                return float(result['data'][0].get('ctVal', TradingConstants.DEFAULT_LOT_SIZE))
         except Exception as e:
-            print(f"Error getting contract value: {e}")
+            print(f"Error getting contract value for {symbol}: {e}")
         
-        # Default fallbacks
+        # Fallback to known values
         if 'ETH' in symbol.upper():
             return 0.1
         elif 'BTC' in symbol.upper():
@@ -195,36 +221,34 @@ class OKXTestnetClient:
             return 1.0
     
     def get_lot_size(self, symbol: str) -> float:
-        """Get lot size (lotSz) for a symbol from OKX API - minimum order quantity step"""
+        """Get lot size (lotSz) for a symbol from OKX API"""
         if not self.public_api:
-            return 1.0
+            return TradingConstants.DEFAULT_LOT_SIZE
         
         inst_id = self.convert_symbol_to_okx(symbol)
         try:
-            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            result = self.public_api.get_instruments(instType=APIConstants.INST_TYPE_SWAP, instId=inst_id)
             if result.get('code') == '0' and result.get('data'):
-                lot_sz = float(result['data'][0].get('lotSz', 1))
-                return lot_sz
+                return float(result['data'][0].get('lotSz', TradingConstants.DEFAULT_LOT_SIZE))
         except Exception as e:
-            print(f"Error getting lot size: {e}")
+            print(f"Error getting lot size for {symbol}: {e}")
         
-        return 1.0
+        return TradingConstants.DEFAULT_LOT_SIZE
     
     def get_tick_size(self, symbol: str) -> str:
-        """Get tick size (tickSz) for a symbol from OKX API - minimum price step"""
+        """Get tick size (tickSz) for a symbol from OKX API"""
         if not self.public_api:
-            return "0.0001"
+            return TradingConstants.DEFAULT_TICK_SIZE
         
         inst_id = self.convert_symbol_to_okx(symbol)
         try:
-            result = self.public_api.get_instruments(instType='SWAP', instId=inst_id)
+            result = self.public_api.get_instruments(instType=APIConstants.INST_TYPE_SWAP, instId=inst_id)
             if result.get('code') == '0' and result.get('data'):
-                tick_sz = result['data'][0].get('tickSz', '0.0001')
-                return tick_sz
+                return result['data'][0].get('tickSz', TradingConstants.DEFAULT_TICK_SIZE)
         except Exception as e:
-            print(f"Error getting tick size: {e}")
+            print(f"Error getting tick size for {symbol}: {e}")
         
-        return "0.0001"
+        return TradingConstants.DEFAULT_TICK_SIZE
     
     def format_price(self, price: float, tick_size: str) -> str:
         """Format price according to tick size precision"""
@@ -235,26 +259,20 @@ class OKXTestnetClient:
             # Round down to tick size
             rounded = (price_decimal / tick_decimal).quantize(Decimal('1'), rounding=ROUND_DOWN) * tick_decimal
             # Get decimal places from tick size
-            if '.' in tick_size:
-                decimal_places = len(tick_size.split('.')[1])
-            else:
-                decimal_places = 0
+            decimal_places = len(tick_size.split('.')[1]) if '.' in tick_size else 0
             return f"{float(rounded):.{decimal_places}f}"
         except Exception:
             return str(price)
     
-    def round_to_lot_size(self, quantity: float, lot_size: float) -> int:
-        """Round quantity to nearest lot size multiple (always returns integer for SWAP)"""
-        import math
-        if lot_size <= 0:
-            lot_size = 1.0
-        # For SWAP perpetuals, quantity must be integer (number of contracts)
-        rounded = int(math.floor(quantity / lot_size) * lot_size)
-        return max(1, rounded)
+    def round_to_lot_size(self, quantity: float, lot_size: float) -> float:
+        """Round quantity to 2 decimal places for OKX SWAP contracts"""
+        return round(quantity, 2)
     
     def get_symbol_price(self, symbol: str) -> Optional[float]:
+        """Get current symbol price"""
         if not self.market_api:
             return None
+        
         try:
             inst_id = self.convert_symbol_to_okx(symbol)
             result = self.market_api.get_ticker(instId=inst_id)
@@ -262,29 +280,31 @@ class OKXTestnetClient:
                 return float(result['data'][0]['last'])
             return None
         except Exception as e:
-            print(f"Error getting price: {e}")
+            print(f"Error getting price for {symbol}: {e}")
             return None
     
-    def place_market_order(self, symbol: str, side: str, quantity: float, position_side: str = "long") -> Optional[Dict]:
+    def place_market_order(self, symbol: str, side: str, quantity: float, 
+                          position_side: str = PositionSide.LONG) -> Optional[Dict[str, Any]]:
+        """Place a market order"""
         if not self.trade_api:
             return None
+        
         try:
             inst_id = self.convert_symbol_to_okx(symbol)
-            
             lot_size = self.get_lot_size(symbol)
             rounded_quantity = self.round_to_lot_size(quantity, lot_size)
             
             print(f"📦 Market order: {symbol} {side} | qty: {quantity} -> {rounded_quantity} (lot: {lot_size})")
             
-            okx_side = "buy" if side.upper() == "LONG" else "sell"
-            okx_pos_side = "long" if side.upper() == "LONG" else "short"
+            okx_side = OrderSide.BUY if side.upper() == OrderSide.LONG else OrderSide.SELL
+            okx_pos_side = PositionSide.LONG if side.upper() == OrderSide.LONG else PositionSide.SHORT
             
             result = self.trade_api.place_order(
                 instId=inst_id,
-                tdMode="cross",
+                tdMode=TradingMode.CROSS,
                 side=okx_side,
                 posSide=okx_pos_side,
-                ordType="market",
+                ordType=OrderType.MARKET,
                 sz=str(rounded_quantity)
             )
             
@@ -299,7 +319,7 @@ class OKXTestnetClient:
                 print(f"Order failed: {result}")
             return None
         except Exception as e:
-            print(f"Error placing order: {e}")
+            print(f"Error placing market order: {e}")
             return None
     
     def place_limit_order(self, symbol: str, side: str, quantity: float, price: float, position_side: str = "long") -> Optional[Dict]:

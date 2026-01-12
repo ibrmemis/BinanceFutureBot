@@ -1,57 +1,70 @@
 from datetime import datetime, timezone
+from typing import Tuple, Optional, Union
+from dataclasses import dataclass
 from okx_client import OKXTestnetClient
-from database import SessionLocal, Position
+from database_utils import get_db_session
+from database import Position, SessionLocal
+from constants import (
+    OrderSide, PositionSide, TradingConstants, 
+    ErrorMessages, SuccessMessages, TradingMode, OrderType
+)
 
-class Try1Strategy:
-    def __init__(self):
-        self.client = OKXTestnetClient()
+
+@dataclass
+class PositionParams:
+    """Data class for position parameters"""
+    symbol: str
+    side: str
+    amount_usdt: float
+    leverage: int
+    tp_usdt: float
+    sl_usdt: float
+    parent_position_id: Optional[int] = None
+
+
+@dataclass
+class PositionResult:
+    """Data class for position operation results"""
+    success: bool
+    message: str
+    position_id: Optional[int] = None
+    order_id: Optional[str] = None
+
+
+class TradingCalculator:
+    """Separate class for trading calculations"""
     
+    @staticmethod
     def calculate_quantity_for_usdt(
-        self,
         amount_usdt: float,
         leverage: int,
         current_price: float,
-        symbol: str | None = None
-    ) -> int:
-        # Get contract value from OKX API (e.g., ETH: 0.1, BTC: 0.01, SOL: 1)
-        if symbol:
-            contract_value = self.client.get_contract_value(symbol)
-            lot_size = self.client.get_lot_size(symbol)
-        else:
-            contract_value = 1.0
-            lot_size = 1.0
-        
-        # Calculate exact contracts needed for desired position value
-        # Contract USDT value = contract_value * current_price
+        contract_value: float,
+        lot_size: float
+    ) -> float:
+        """Calculate contract quantity for given USDT amount"""
         contract_usdt_value = contract_value * current_price
         exact_contracts = amount_usdt / contract_usdt_value
-        
-        # Round to lot size (OKX SWAP requires integer contracts)
-        contracts = self.client.round_to_lot_size(exact_contracts, lot_size)
-        
-        # Ensure minimum 1 contract
-        return max(1, contracts)
+
+        # Round to 2 decimal places for OKX precision
+        return round(exact_contracts, 2)
     
+    @staticmethod
     def calculate_tp_sl_prices(
-        self,
         entry_price: float,
         side: str,
         tp_usdt: float,
         sl_usdt: float,
         quantity: float,
-        symbol: str
-    ) -> tuple[float, float]:
-        # Get contract value (BTC: 0.01, ETH: 0.1, SOL: 1.0)
-        contract_value = self.client.get_contract_value(symbol)
-        
-        # Calculate actual BTC/ETH/SOL amount
+        contract_value: float
+    ) -> Tuple[float, float]:
+        """Calculate TP/SL prices based on USDT amounts"""
         crypto_amount = quantity * contract_value
         
-        # Calculate price change needed for TP/SL USDT
         price_change_tp = tp_usdt / crypto_amount
         price_change_sl = sl_usdt / crypto_amount
         
-        if side == "LONG":
+        if side == OrderSide.LONG:
             tp_price = entry_price + price_change_tp
             sl_price = entry_price - price_change_sl
         else:
@@ -59,6 +72,29 @@ class Try1Strategy:
             sl_price = entry_price + price_change_sl
         
         return tp_price, sl_price
+
+
+class ModernTradingStrategy:
+    """
+    Modern trading strategy with improved error handling and type safety
+    """
+    
+    def __init__(self):
+        self.client = OKXTestnetClient()
+        self.calculator = TradingCalculator()
+    
+    def _validate_position_params(self, params: PositionParams) -> Optional[str]:
+        """Validate position parameters"""
+        if not self.client.is_configured():
+            return ErrorMessages.API_NOT_CONFIGURED
+        
+        if params.amount_usdt < TradingConstants.MIN_POSITION_SIZE:
+            return ErrorMessages.INVALID_POSITION_SIZE
+        
+        if params.leverage < 1 or params.leverage > TradingConstants.MAX_LEVERAGE:
+            return f"Leverage must be between 1 and {TradingConstants.MAX_LEVERAGE}"
+        
+        return None
     
     def open_position(
         self,
@@ -68,155 +104,261 @@ class Try1Strategy:
         leverage: int,
         tp_usdt: float,
         sl_usdt: float,
-        parent_position_id: int | None = None,
+        parent_position_id: Optional[int] = None,
         save_to_db: bool = True
-    ) -> tuple[bool, str, int | None]:
-        print(f"LOG: {symbol} için {side} pozisyonu açılıyor... Büyüklük: {amount_usdt} USDT, Kaldıraç: {leverage}x")
-        if not self.client.is_configured():
-            return False, "OKX API anahtarları yapılandırılmamış", None
-        
-        self.client.set_position_mode("long_short_mode")
-        
-        position_side = "long" if side == "LONG" else "short"
-        self.client.set_leverage(symbol, leverage, position_side)
-        
-        current_price = self.client.get_symbol_price(symbol)
-        if not current_price:
-            return False, "Fiyat alınamadı", None
-        
-        quantity = self.calculate_quantity_for_usdt(amount_usdt, leverage, current_price, symbol)
-        if quantity < 0.01:
-            return False, "Geçersiz miktar (minimum 0.01 kontrat)", None
-        
-        order = self.client.place_market_order(
+    ) -> PositionResult:
+        """
+        Open a new position with modern error handling
+        """
+        params = PositionParams(
             symbol=symbol,
             side=side,
-            quantity=quantity,
-            position_side=position_side
+            amount_usdt=amount_usdt,
+            leverage=leverage,
+            tp_usdt=tp_usdt,
+            sl_usdt=sl_usdt,
+            parent_position_id=parent_position_id
         )
         
+        # Validate parameters
+        validation_error = self._validate_position_params(params)
+        if validation_error:
+            return PositionResult(False, validation_error)
+        
+        print(f"LOG: {symbol} için {side} pozisyonu açılıyor... Büyüklük: {amount_usdt} USDT, Kaldıraç: {leverage}x")
+        
+        # Set position mode and leverage
+        self.client.set_position_mode("long_short_mode")
+        position_side = PositionSide.LONG if side == OrderSide.LONG else PositionSide.SHORT
+        self.client.set_leverage(symbol, leverage, position_side)
+        
+        # Get current price
+        current_price = self.client.get_symbol_price(symbol)
+        if not current_price:
+            return PositionResult(False, ErrorMessages.PRICE_NOT_AVAILABLE)
+        
+        # Calculate quantity
+        contract_value = self.client.get_contract_value(symbol)
+        lot_size = self.client.get_lot_size(symbol)
+        
+        quantity = self.calculator.calculate_quantity_for_usdt(
+            amount_usdt, leverage, current_price, contract_value, lot_size
+        )
+        
+        if quantity < 1:
+            return PositionResult(False, "Geçersiz miktar (minimum 1 kontrat)")
+        
+        # Place market order
+        order = self.client.place_market_order(symbol, side, quantity, position_side)
         if not order:
-            print(f"LOG: {symbol} emri AÇILAMADI.")
-            return False, "Emir açılamadı", None
+            return PositionResult(False, ErrorMessages.ORDER_FAILED)
         
-        entry_price = current_price
-        print(f"LOG: {symbol} emri başarıyla açıldı. Giriş Fiyatı: ${entry_price:.4f}")
+        print(f"LOG: {symbol} emri başarıyla açıldı. Giriş Fiyatı: ${current_price:.4f}")
         
+        # Get position ID from OKX
         import time
-        time.sleep(2)
+        time.sleep(TradingConstants.ORDER_DELAY_SECONDS)
         
         okx_position = self.client.get_position(symbol, position_side)
         pos_id = okx_position.get('posId') if okx_position else None
         
-        # Use entry_price instead of breakeven for TP/SL calculation
-        # User's TP/SL USDT values represent net profit/loss expectations
-        tp_price, sl_price = self.calculate_tp_sl_prices(
-            entry_price=entry_price,
-            side=side,
-            tp_usdt=tp_usdt,
-            sl_usdt=sl_usdt,
-            quantity=quantity,
-            symbol=symbol
+        # Calculate TP/SL prices
+        tp_price, sl_price = self.calculator.calculate_tp_sl_prices(
+            current_price, side, tp_usdt, sl_usdt, quantity, contract_value
         )
         
-        sl_order_id = None
-        current_price_check = self.client.get_symbol_price(symbol)
-        if current_price_check and sl_price and self.client.trade_api:
-            is_valid_sl = (side == "LONG" and sl_price < current_price_check) or \
-                          (side == "SHORT" and sl_price > current_price_check)
-            if is_valid_sl:
-                inst_id = self.client.convert_symbol_to_okx(symbol)
-                close_side = "sell" if side == "LONG" else "buy"
-                sl_result = self.client.trade_api.place_algo_order(
-                    instId=inst_id,
-                    tdMode="cross",
-                    side=close_side,
-                    posSide=position_side,
-                    ordType="trigger",
-                    sz=str(quantity),
-                    triggerPx=str(round(sl_price, 4)),
-                    orderPx="-1"
-                )
-                if sl_result.get('code') == '0' and sl_result.get('data'):
-                    sl_order_id = sl_result['data'][0]['algoId']
-                    print(f"SL order placed immediately: {sl_order_id} @ ${sl_price:.4f}")
-                else:
-                    print(f"❌ SL order FAILED: {sl_result.get('msg', 'Unknown error')} - Code: {sl_result.get('code')}")
-            else:
-                print(f"❌ Invalid SL price: ${sl_price:.4f} (current: ${current_price_check:.4f}, side: {side})")
+        # Place TP/SL orders
+        tp_order_id, sl_order_id = self._place_tp_sl_orders(
+            symbol, side, quantity, current_price, tp_price, sl_price, position_side
+        )
         
-        time.sleep(5)
+        # Save to database if requested
+        if save_to_db:
+            return self._save_position_to_db(
+                params, current_price, quantity, order.get('orderId'), 
+                pos_id, position_side, tp_order_id, sl_order_id
+            )
+        
+        tp_sl_msg = self._format_tp_sl_message(tp_price, sl_price, tp_order_id, sl_order_id)
+        message = f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${current_price:.4f}{tp_sl_msg}"
+        
+        return PositionResult(True, message, order_id=order.get('orderId'))
+    
+    def _place_tp_sl_orders(
+        self, symbol: str, side: str, quantity: float, 
+        current_price: float, tp_price: float, sl_price: float, 
+        position_side: str
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Place TP and SL orders with proper validation"""
+        import time
         
         tp_order_id = None
-        current_price_check = self.client.get_symbol_price(symbol)
-        if current_price_check and tp_price and self.client.trade_api:
-            is_valid_tp = (side == "LONG" and tp_price > current_price_check) or \
-                          (side == "SHORT" and tp_price < current_price_check)
-            if is_valid_tp:
-                inst_id = self.client.convert_symbol_to_okx(symbol)
-                close_side = "sell" if side == "LONG" else "buy"
-                # Use trigger order for TP (same as SL, just different trigger price)
-                tp_result = self.client.trade_api.place_algo_order(
-                    instId=inst_id,
-                    tdMode="cross",
-                    side=close_side,
-                    posSide=position_side,
-                    ordType="trigger",
-                    sz=str(quantity),
-                    triggerPx=str(round(tp_price, 4)),
-                    orderPx="-1"
-                )
-                if tp_result.get('code') == '0' and tp_result.get('data'):
-                    tp_order_id = tp_result['data'][0]['algoId']
-                    print(f"TP order placed after 5 seconds: {tp_order_id} @ ${tp_price:.4f} (entry: ${entry_price:.4f})")
-                else:
-                    print(f"❌ TP order FAILED: {tp_result.get('msg', 'Unknown error')} - Code: {tp_result.get('code')}")
-            else:
-                print(f"❌ Invalid TP price: ${tp_price:.4f} (current: ${current_price_check:.4f}, side: {side})")
+        sl_order_id = None
         
-        tp_sl_msg = ""
-        if tp_order_id and sl_order_id:
-            tp_sl_msg = f" (TP: ${tp_price:.4f}, SL: ${sl_price:.4f})"
-        elif tp_order_id:
-            tp_sl_msg = f" (TP: ${tp_price:.4f})"
-        elif sl_order_id:
-            tp_sl_msg = f" (SL: ${sl_price:.4f})"
-        
-        if not save_to_db:
-            return True, f"Pozisyon açıldı (DB'ye kaydedilmedi): {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", None
-        
-        db = SessionLocal()
-        try:
-            position = Position(
-                symbol=symbol,
-                side=side,
-                amount_usdt=amount_usdt,
-                leverage=leverage,
-                tp_usdt=tp_usdt,
-                sl_usdt=sl_usdt,
-                entry_price=entry_price,
-                quantity=quantity,
-                order_id=str(order.get('orderId')),
-                position_id=pos_id,
-                position_side=position_side,
-                tp_order_id=tp_order_id,
-                sl_order_id=sl_order_id,
-                is_open=True,
-                parent_position_id=parent_position_id
+        # Place SL order first
+        if sl_price and sl_price > 0:
+            is_valid_sl = (
+                (side == OrderSide.LONG and sl_price < current_price) or 
+                (side == OrderSide.SHORT and sl_price > current_price)
             )
-            db.add(position)
-            db.commit()
-            db.refresh(position)
             
-            # Extract id value using getattr to satisfy type checker
-            position_db_id = int(getattr(position, 'id')) if getattr(position, 'id', None) is not None else None
+            if is_valid_sl:
+                sl_order_id = self._place_algo_order(
+                    symbol, side, quantity, sl_price, position_side, "SL"
+                )
+        
+        # Wait before placing TP order
+        time.sleep(TradingConstants.TP_ORDER_DELAY_SECONDS)
+        
+        # Place TP order
+        if tp_price and tp_price > 0:
+            is_valid_tp = (
+                (side == OrderSide.LONG and tp_price > current_price) or 
+                (side == OrderSide.SHORT and tp_price < current_price)
+            )
             
-            return True, f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}", position_db_id
+            if is_valid_tp:
+                tp_order_id = self._place_algo_order(
+                    symbol, side, quantity, tp_price, position_side, "TP"
+                )
+        
+        return tp_order_id, sl_order_id
+    
+    def _place_algo_order(
+        self, symbol: str, side: str, quantity: float, 
+        trigger_price: float, position_side: str, order_type: str
+    ) -> Optional[str]:
+        """Place a single algo order (TP or SL)"""
+        if not self.client.trade_api:
+            return None
+        
+        try:
+            inst_id = self.client.convert_symbol_to_okx(symbol)
+            close_side = OrderSide.SELL if side == OrderSide.LONG else OrderSide.BUY
+            tick_size = self.client.get_tick_size(symbol)
+            formatted_price = self.client.format_price(trigger_price, tick_size)
+            
+            result = self.client.trade_api.place_algo_order(
+                instId=inst_id,
+                tdMode=TradingMode.CROSS,
+                side=close_side,
+                posSide=position_side,
+                ordType=OrderType.TRIGGER,
+                sz=str(quantity),
+                triggerPx=formatted_price,
+                orderPx="-1"
+            )
+            
+            if result.get('code') == '0' and result.get('data'):
+                order_id = result['data'][0]['algoId']
+                print(f"{order_type} order placed: {order_id} @ ${formatted_price}")
+                return order_id
+            else:
+                print(f"❌ {order_type} order FAILED: {result.get('msg', 'Unknown error')}")
+                return None
+                
         except Exception as e:
-            db.rollback()
-            return False, f"Veritabanı hatası: {e}", None
-        finally:
-            db.close()
+            print(f"❌ {order_type} order exception: {e}")
+            return None
+    
+    def _save_position_to_db(
+        self, params: PositionParams, entry_price: float, quantity: float,
+        order_id: Optional[str], pos_id: Optional[str], position_side: str,
+        tp_order_id: Optional[str], sl_order_id: Optional[str]
+    ) -> PositionResult:
+        """Save position to database"""
+        try:
+            with get_db_session() as db:
+                position = Position(
+                    symbol=params.symbol,
+                    side=params.side,
+                    amount_usdt=params.amount_usdt,
+                    leverage=params.leverage,
+                    tp_usdt=params.tp_usdt,
+                    sl_usdt=params.sl_usdt,
+                    original_tp_usdt=params.tp_usdt,
+                    original_sl_usdt=params.sl_usdt,
+                    entry_price=entry_price,
+                    quantity=quantity,
+                    order_id=order_id,
+                    position_id=pos_id,
+                    position_side=position_side,
+                    tp_order_id=tp_order_id,
+                    sl_order_id=sl_order_id,
+                    is_open=True,
+                    parent_position_id=params.parent_position_id
+                )
+                db.add(position)
+                db.commit()
+                db.refresh(position)
+                
+                tp_sl_msg = self._format_tp_sl_message(
+                    None, None, tp_order_id, sl_order_id
+                )
+                message = f"{SuccessMessages.POSITION_OPENED}: {params.symbol} {params.side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}"
+                
+                return PositionResult(True, message, position.id)
+                
+        except Exception as e:
+            return PositionResult(False, f"Veritabanı hatası: {e}")
+    
+    @staticmethod
+    def _format_tp_sl_message(
+        tp_price: Optional[float], sl_price: Optional[float],
+        tp_order_id: Optional[str], sl_order_id: Optional[str]
+    ) -> str:
+        """Format TP/SL message for display"""
+        parts = []
+        if tp_order_id and tp_price:
+            parts.append(f"TP: ${tp_price:.4f}")
+        elif tp_order_id:
+            parts.append("TP: Placed")
+        
+        if sl_order_id and sl_price:
+            parts.append(f"SL: ${sl_price:.4f}")
+        elif sl_order_id:
+            parts.append("SL: Placed")
+        
+        return f" ({', '.join(parts)})" if parts else ""
+
+
+# Backward compatibility alias
+Try1Strategy = ModernTradingStrategy
+
+
+class Try1Strategy(ModernTradingStrategy):
+    """Legacy class name for backward compatibility"""
+    
+    def calculate_quantity_for_usdt(
+        self,
+        amount_usdt: float,
+        leverage: int,
+        current_price: float,
+        symbol: str
+    ) -> float:
+        """Calculate contract quantity for given USDT amount - wrapper method"""
+        contract_value = self.client.get_contract_value(symbol)
+        lot_size = self.client.get_lot_size(symbol)
+        
+        return self.calculator.calculate_quantity_for_usdt(
+            amount_usdt, leverage, current_price, contract_value, lot_size
+        )
+    
+    def calculate_tp_sl_prices(
+        self,
+        entry_price: float,
+        side: str,
+        tp_usdt: float,
+        sl_usdt: float,
+        quantity: float,
+        symbol: str
+    ) -> Tuple[float, float]:
+        """Calculate TP/SL prices - wrapper method"""
+        contract_value = self.client.get_contract_value(symbol)
+        
+        return self.calculator.calculate_tp_sl_prices(
+            entry_price, side, tp_usdt, sl_usdt, quantity, contract_value
+        )
     
     def execute_recovery(
         self,

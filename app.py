@@ -3,111 +3,92 @@ import pandas as pd
 from datetime import datetime, timezone
 from typing import cast
 from database import init_db, SessionLocal, Position, APICredentials, Settings
+from database_utils import get_db_session, DatabaseManager
 from okx_client import OKXTestnetClient
 from trading_strategy import Try1Strategy
 from background_scheduler import get_monitor, stop_monitor, start_monitor
+from constants import (
+    UIConstants, APIConstants, DatabaseConstants, TradingConstants,
+    CacheConstants, ErrorMessages, SuccessMessages, EnvVars
+)
 import os
 
 st.set_page_config(
-    page_title="OKX Futures Trading Bot (Demo)",
-    page_icon="📈",
-    layout="wide"
+    page_title=UIConstants.PAGE_TITLE,
+    page_icon=UIConstants.PAGE_ICON,
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
+
+# Load custom CSS for compact UI
+def load_css():
+    try:
+        with open('.streamlit/style.css') as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    except FileNotFoundError:
+        pass
+
+load_css()
 
 init_db()
 
 monitor = get_monitor()
 
-@st.cache_resource(ttl=300)
+@st.cache_resource(ttl=CacheConstants.CLIENT_CACHE_TTL)
 def get_cached_client():
-    """Cache OKX client for 5 minutes"""
     return OKXTestnetClient()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=CacheConstants.SYMBOLS_CACHE_TTL)
 def get_cached_symbols():
-    """Cache symbol list for 1 minute"""
     client = get_cached_client()
     return client.get_all_swap_symbols()
 
 def get_cached_price(symbol: str):
-    """Get live price (no cache)"""
     client = get_cached_client()
     return client.get_symbol_price(symbol)
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=CacheConstants.POSITIONS_CACHE_TTL)
 def get_cached_positions():
-    """Cache database positions for 30 seconds"""
-    db = SessionLocal()
-    try:
+    with get_db_session() as db:
         positions = db.query(Position).order_by(Position.opened_at.desc()).all()
         return [{'id': p.id, 'symbol': p.symbol, 'side': p.side, 'amount_usdt': p.amount_usdt,
                  'leverage': p.leverage, 'tp_usdt': p.tp_usdt, 'sl_usdt': p.sl_usdt,
                  'entry_price': p.entry_price, 'quantity': p.quantity, 'is_open': p.is_open,
                  'position_side': p.position_side, 'opened_at': p.opened_at, 'position_id': p.position_id,
                  'recovery_count': p.recovery_count} for p in positions]
-    finally:
-        db.close()
 
 def clear_position_cache():
-    """Clear position cache after mutations"""
     get_cached_positions.clear()
 
 def check_api_keys():
-    api_key = os.getenv("OKX_DEMO_API_KEY")
-    api_secret = os.getenv("OKX_DEMO_API_SECRET")
-    passphrase = os.getenv("OKX_DEMO_PASSPHRASE")
-    
-    if api_key and api_secret and passphrase:
+    if all(os.getenv(var) for var in [EnvVars.OKX_DEMO_API_KEY, EnvVars.OKX_DEMO_API_SECRET, EnvVars.OKX_DEMO_PASSPHRASE]):
         return True
-    
-    db = SessionLocal()
-    try:
-        creds = db.query(APICredentials).first()
-        return creds is not None
-    finally:
-        db.close()
-    
-    return False
+    with get_db_session() as db:
+        return db.query(APICredentials).first() is not None
 
 def main():
     if 'auto_reopen_delay_minutes' not in st.session_state:
-        # Load from database, default to 1 minute if not set
-        db = SessionLocal()
+        delay = DatabaseManager.get_setting(
+            DatabaseConstants.SETTING_AUTO_REOPEN_DELAY,
+            TradingConstants.DEFAULT_RECOVERY_DELAY
+        )
         try:
-            setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
-            if setting:
-                st.session_state.auto_reopen_delay_minutes = int(setting.value)
-            else:
-                # Default to 1 minute
-                st.session_state.auto_reopen_delay_minutes = 1
-                # Try to save default to database (ignore if already exists)
-                try:
-                    setting = Settings(key="auto_reopen_delay_minutes", value="1")
-                    db.add(setting)
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                    # Setting already exists, just use default
-                    pass
-        finally:
-            db.close()
+            st.session_state.auto_reopen_delay_minutes = int(delay)
+        except (ValueError, TypeError):
+            st.session_state.auto_reopen_delay_minutes = TradingConstants.DEFAULT_RECOVERY_DELAY
+            DatabaseManager.set_setting(DatabaseConstants.SETTING_AUTO_REOPEN_DELAY, str(TradingConstants.DEFAULT_RECOVERY_DELAY))
     
-    db_check = SessionLocal()
-    try:
-        creds_check = db_check.query(APICredentials).first()
+    with get_db_session() as db:
+        creds_check = db.query(APICredentials).first()
         is_demo_mode = not creds_check or creds_check.is_demo
-    finally:
-        db_check.close()
     
     if is_demo_mode:
-        st.title("📈 OKX Futures Trading Bot (Demo)")
-        st.caption("Demo hesap üzerinde çalışıyor")
+        st.markdown("### 📈 OKX Futures Bot (Demo)")
     else:
-        st.title("💰 OKX Futures Trading Bot (GERÇEK)")
-        st.caption("⚠️ GERÇEK hesap üzerinde çalışıyor - dikkatli olun!")
+        st.markdown("### 💰 OKX Futures Bot (GERÇEK)")
     
     with st.sidebar:
-        st.header("🔐 Hesap Modu")
+        st.markdown("#### 🔐 Hesap")
         
         db = SessionLocal()
         try:
@@ -118,7 +99,7 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🧪 Demo", type="primary" if current_mode == "demo" else "secondary", use_container_width=True, key="btn_demo"):
+            if st.button("🧪", type="primary" if current_mode == "demo" else "secondary", use_container_width=True, key="btn_demo", help="Demo Mode"):
                 db = SessionLocal()
                 try:
                     creds = db.query(APICredentials).first()
@@ -129,7 +110,7 @@ def main():
                 finally:
                     db.close()
         with col2:
-            if st.button("💰 Gerçek", type="primary" if current_mode == "real" else "secondary", use_container_width=True, key="btn_real"):
+            if st.button("💰", type="primary" if current_mode == "real" else "secondary", use_container_width=True, key="btn_real", help="Real Mode"):
                 db = SessionLocal()
                 try:
                     creds = db.query(APICredentials).first()
@@ -138,46 +119,27 @@ def main():
                         db.commit()
                         st.rerun()
                     else:
-                        st.warning("Önce API key kaydedin")
+                        st.warning("API key gerekli")
                 finally:
                     db.close()
         
-        if current_mode == "demo":
-            st.info("🧪 Demo hesap aktif")
-        else:
-            st.warning("💰 GERÇEK hesap aktif!")
-        
         st.divider()
-        st.header("🤖 Bot Kontrolü")
+        st.markdown("#### 🤖 Bot")
         
         monitor = get_monitor()
         bot_running = monitor.is_running() if monitor else False
         
         if bot_running:
-            st.success("✅ Bot Çalışıyor")
-            st.caption("Pozisyonlar otomatik takip ediliyor")
-            if st.button("⏹️ Botu Durdur", type="primary", use_container_width=True, key="btn_stop_bot"):
+            st.success("✅ Çalışıyor")
+            if st.button("⏹️ Durdur", type="primary", use_container_width=True, key="btn_stop_bot"):
                 if stop_monitor():
-                    st.success("Bot durduruldu!")
                     st.rerun()
-                else:
-                    st.error("Bot durdurulamadı!")
         else:
-            st.error("⏸️ Bot Durdu")
-            st.caption("Pozisyonlar takip edilmiyor")
-            if st.button("▶️ Botu Başlat", type="primary", use_container_width=True, key="btn_start_bot"):
+            st.error("⏸️ Durdu")
+            if st.button("▶️ Başlat", type="primary", use_container_width=True, key="btn_start_bot"):
                 reopen_delay = st.session_state.get('auto_reopen_delay_minutes', 3)
                 if start_monitor(reopen_delay):
-                    st.success(f"Bot başlatıldı! (Auto-reopen: {reopen_delay} dk)")
                     st.rerun()
-                else:
-                    st.error("Bot başlatılamadı!")
-        
-        st.divider()
-        st.caption("⚠️ Bot durduğunda:")
-        st.caption("• Pozisyon takibi yapılmaz")
-        st.caption("• Otomatik yeniden açma çalışmaz")
-        st.caption("• TP/SL emirleri OKX'te aktif kalır")
     
     if not check_api_keys():
         st.error("⚠️ OKX API anahtarları yapılandırılmamış!")
@@ -222,7 +184,14 @@ def main():
                     st.warning("Lütfen tüm alanları doldurun.")
         return
     
-    tabs = st.tabs(["🎯 Yeni İşlem", "📊 Aktif Pozisyonlar", "📋 Emirler", "📈 Geçmiş İşlemler", "⚙️ Ayarlar", "💾 Database"])
+    tabs = st.tabs([
+        UIConstants.TAB_NEW_TRADE, 
+        UIConstants.TAB_ACTIVE_POSITIONS, 
+        UIConstants.TAB_ORDERS, 
+        UIConstants.TAB_HISTORY, 
+        UIConstants.TAB_SETTINGS, 
+        UIConstants.TAB_DATABASE
+    ])
     
     with tabs[0]:
         show_new_trade_page()
@@ -243,8 +212,7 @@ def main():
         show_database_page()
 
 def show_database_page():
-    st.header("💾 Veritabanı Görüntüleyici")
-    st.caption("Sistemdeki tüm tabloları ve verileri buradan inceleyebilirsiniz.")
+    st.markdown("#### 💾 Database")
     
     db = SessionLocal()
     try:
@@ -292,7 +260,7 @@ def show_database_page():
         db.close()
 
 def show_new_trade_page():
-    st.header("🎯 Yeni İşlem Aç")
+    st.markdown("#### 🎯 Yeni İşlem")
     
     client = get_cached_client()
     all_symbols = get_cached_symbols()
@@ -316,18 +284,41 @@ def show_new_trade_page():
             st.caption(f"{side_emoji} {side}")
         
         with col3:
-            leverage = st.number_input("Kaldıraç", min_value=1, max_value=125, value=20, step=1)
+            leverage = st.number_input(
+                "Kaldıraç", 
+                min_value=APIConstants.MIN_LEVERAGE, 
+                max_value=APIConstants.MAX_LEVERAGE, 
+                value=APIConstants.DEFAULT_LEVERAGE, 
+                step=1
+            )
         
         col4, col5, col6 = st.columns(3)
         
         with col4:
-            amount_usdt = st.number_input("Pozisyon (USDT)", min_value=1.0, value=1111.0, step=10.0)
+            amount_usdt = st.number_input(
+                "Pozisyon (USDT)", 
+                min_value=APIConstants.MIN_POSITION_SIZE, 
+                value=APIConstants.DEFAULT_POSITION_SIZE, 
+                step=10.0
+            )
         
         with col5:
-            tp_usdt = st.number_input("TP (USDT)", min_value=0.1, value=5.0, step=1.0, help="Kar hedefi")
+            tp_usdt = st.number_input(
+                "TP (USDT)", 
+                min_value=0.1, 
+                value=APIConstants.DEFAULT_TP_USDT, 
+                step=1.0, 
+                help="Kar hedefi"
+            )
         
         with col6:
-            sl_usdt = st.number_input("SL (USDT)", min_value=0.1, value=115.0, step=1.0, help="Zarar limiti")
+            sl_usdt = st.number_input(
+                "SL (USDT)", 
+                min_value=0.1, 
+                value=APIConstants.DEFAULT_SL_USDT, 
+                step=1.0, 
+                help="Zarar limiti"
+            )
         
         if current_price:
             contract_value = client.get_contract_value(symbol)
@@ -380,7 +371,7 @@ def show_new_trade_page():
                     finally:
                         db.close()
     
-    st.subheader("📋 Pozisyonlar")
+    st.markdown("##### 📋 Pozisyonlar")
     
     client = get_cached_client()
     
@@ -473,7 +464,7 @@ def show_new_trade_page():
             )
             
             st.divider()
-            st.subheader("🎮 Pozisyon Kontrolü")
+            st.markdown("##### 🎮 Kontrol")
             
             from background_scheduler import get_monitor
             monitor = get_monitor()
@@ -659,7 +650,7 @@ def show_new_trade_page():
         db.close()
 
 def show_active_positions_page():
-    st.header("📊 Aktif Pozisyonlar (Real-Time OKX)")
+    st.markdown("#### 📊 Aktif Pozisyonlar")
     
     col1, col2 = st.columns([3, 1])
     
@@ -676,39 +667,19 @@ def show_active_positions_page():
     usdt_balance = client.get_account_balance("USDT")
     
     if usdt_balance:
-        st.subheader("💰 USDT Asset Bilgisi")
+        st.markdown("##### 💰 USDT Bakiye")
         
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric(
-                "Equity (Toplam Bakiye)", 
-                f"${usdt_balance['equity']:.2f}",
-                help="Toplam USDT bakiyeniz (kullanılan + kullanılabilir)"
-            )
+            st.metric("Equity", f"${usdt_balance['equity']:.2f}")
         
         with col2:
-            st.metric(
-                "Kullanılabilir", 
-                f"${usdt_balance['available']:.2f}",
-                help="Yeni pozisyon açmak için kullanılabilir USDT"
-            )
+            st.metric("Kullanılabilir", f"${usdt_balance['available']:.2f}")
         
         with col3:
             pnl_color = "normal" if usdt_balance['unrealized_pnl'] >= 0 else "inverse"
-            st.metric(
-                "Floating PnL", 
-                f"${usdt_balance['unrealized_pnl']:.2f}",
-                delta_color=pnl_color,
-                help="Açık pozisyonlarınızın toplam gerçekleşmemiş kar/zarar"
-            )
-        
-        with col4:
-            st.metric(
-                "Kullanımda (Margin)", 
-                f"${usdt_balance['margin_used']:.2f}",
-                help="Açık pozisyonlar için kullanılan margin"
-            )
+            st.metric("PnL", f"${usdt_balance['unrealized_pnl']:.2f}", delta_color=pnl_color)
         
         st.divider()
     else:
@@ -794,7 +765,7 @@ def show_active_positions_page():
     
 
 def show_history_page():
-    st.header("📈 Geçmiş İşlemler")
+    st.markdown("#### 📈 Geçmiş")
     
     col1, col2, col3 = st.columns([2, 1, 1])
     
@@ -818,7 +789,7 @@ def show_history_page():
     tab1, tab2 = st.tabs(["📊 OKX Position History", "📋 Manuel Pozisyonlar (Database)"])
     
     with tab1:
-        st.subheader("OKX Position History (Tüm Kapanmış Pozisyonlar)")
+        st.markdown("##### OKX History")
         
         from datetime import date, timedelta
         
@@ -840,9 +811,8 @@ def show_history_page():
         
         db = SessionLocal()
         try:
-            from datetime import datetime as dt_module
-            start_datetime = dt_module.combine(start_date, dt_module.min.time())
-            end_datetime = dt_module.combine(end_date, dt_module.max.time())
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
             
             total_count = db.query(PositionHistory).count()
             filtered_count = db.query(PositionHistory).filter(
@@ -913,8 +883,7 @@ def show_history_page():
             db.close()
     
     with tab2:
-        st.subheader("Manuel Oluşturulan Pozisyonlar (Database)")
-        st.caption("Bu uygulama üzerinden manuel olarak açılmış pozisyonlar.")
+        st.markdown("##### Manuel Pozisyonlar")
         
         db = SessionLocal()
         try:
@@ -985,7 +954,7 @@ def show_orders_page():
     except ImportError:
         pass  # Module not available, skip auto-refresh
     
-    st.header("📋 Strateji Emirleri (TP/SL)")
+    st.markdown("#### 📋 Emirler")
     
     col1, col2 = st.columns([3, 1])
     
@@ -1147,7 +1116,7 @@ def show_orders_page():
         )
         
         st.divider()
-        st.subheader("🛠️ Emir İşlemleri")
+        st.markdown("##### 🛠️ İşlemler")
         
         order_ids = [order.get('algoId', 'N/A') for order in algo_orders]
         order_map = {order.get('algoId'): order for order in algo_orders}
@@ -1293,63 +1262,96 @@ def show_orders_page():
                     st.error(f"❌ Hata: {e}")
 
 def show_settings_page():
-    st.header("⚙️ Sistem Ayarları")
+    st.markdown("#### ⚙️ Ayarlar")
     
     db = SessionLocal()
     try:
         # Load existing credentials
         creds = db.query(APICredentials).first()
-        existing_api_key = ""
-        existing_api_secret = ""
-        existing_passphrase = ""
+        
+        # Demo credentials
+        demo_api_key = ""
+        demo_api_secret = ""
+        demo_passphrase = ""
+        
+        # Real credentials
+        real_api_key = ""
+        real_api_secret = ""
+        real_passphrase = ""
+        
         existing_is_demo = True
         
         if creds:
             try:
-                existing_api_key, existing_api_secret, existing_passphrase = creds.get_credentials()
+                # Try to load demo credentials
+                if creds.demo_api_key_encrypted:
+                    demo_api_key, demo_api_secret, demo_passphrase = creds.get_credentials(is_demo=True)
+                
+                # Try to load real credentials
+                if creds.real_api_key_encrypted:
+                    real_api_key, real_api_secret, real_passphrase = creds.get_credentials(is_demo=False)
+                
                 existing_is_demo = getattr(creds, 'is_demo', True)
             except:
                 pass
         
-        st.subheader("🔑 OKX API Yapılandırması")
+        st.markdown("##### 🔑 API")
         
-        # Account Type Selection
-        account_type = st.radio(
-            "Hesap Türü",
-            ["Demo Hesap (Simüle)", "Gerçek Hesap (Live)"],
-            index=0 if existing_is_demo else 1,
-            help="Demo hesap için flag=1, Gerçek hesap için flag=0 kullanılır."
-        )
-        is_demo = (account_type == "Demo Hesap (Simüle)")
+        # Create tabs for Demo and Real accounts
+        api_tab_demo, api_tab_real = st.tabs(["🧪 Demo Hesap API", "💰 Gerçek Hesap API"])
         
-        col_api1, col_api2, col_api3 = st.columns(3)
-        with col_api1:
-            new_api_key = st.text_input("API Key", value=existing_api_key, type="password", key="new_settings_api_key")
-        with col_api2:
-            new_api_secret = st.text_input("API Secret", value=existing_api_secret, type="password", key="new_settings_api_secret")
-        with col_api3:
-            new_passphrase = st.text_input("Passphrase", value=existing_passphrase, type="password", key="new_settings_passphrase")
-        
-        if st.button("💾 API Bilgilerini Kaydet", key="save_api_creds_btn"):
-            if not new_api_key or not new_api_secret or not new_passphrase:
-                st.error("Lütfen tüm alanları doldurun.")
-            else:
-                if creds:
-                    creds.set_credentials(new_api_key, new_api_secret, new_passphrase)
-                    creds.is_demo = is_demo
-                    creds.updated_at = datetime.utcnow()
+        with api_tab_demo:
+            st.info("Demo hesap API anahtarlarınızı buraya girin (flag=1)")
+            
+            col_demo1, col_demo2, col_demo3 = st.columns(3)
+            with col_demo1:
+                demo_key_input = st.text_input("Demo API Key", value=demo_api_key, type="password", key="demo_api_key")
+            with col_demo2:
+                demo_secret_input = st.text_input("Demo API Secret", value=demo_api_secret, type="password", key="demo_api_secret")
+            with col_demo3:
+                demo_pass_input = st.text_input("Demo Passphrase", value=demo_passphrase, type="password", key="demo_passphrase")
+            
+            if st.button("💾 Demo API Kaydet", key="save_demo_api", type="primary"):
+                if not demo_key_input or not demo_secret_input or not demo_pass_input:
+                    st.error("Lütfen tüm alanları doldurun.")
                 else:
-                    creds = APICredentials(is_demo=is_demo)
-                    creds.set_credentials(new_api_key, new_api_secret, new_passphrase)
-                    db.add(creds)
-                
-                db.commit()
-                st.success(f"API bilgileri ({account_type}) başarıyla kaydedildi! Değişikliklerin uygulanması için botu yeniden başlatmanız gerekebilir.")
-                st.rerun()
+                    if not creds:
+                        creds = APICredentials(is_demo=True)
+                        db.add(creds)
+                    
+                    creds.set_credentials(demo_key_input, demo_secret_input, demo_pass_input, is_demo=True)
+                    db.commit()
+                    st.success("✅ Demo API anahtarları kaydedildi!")
+                    st.rerun()
+        
+        with api_tab_real:
+            st.warning("⚠️ GERÇEK hesap API anahtarlarınızı buraya girin (flag=0)")
+            st.caption("Gerçek hesap ile işlem yaparken çok dikkatli olun!")
+            
+            col_real1, col_real2, col_real3 = st.columns(3)
+            with col_real1:
+                real_key_input = st.text_input("Gerçek API Key", value=real_api_key, type="password", key="real_api_key")
+            with col_real2:
+                real_secret_input = st.text_input("Gerçek API Secret", value=real_api_secret, type="password", key="real_api_secret")
+            with col_real3:
+                real_pass_input = st.text_input("Gerçek Passphrase", value=real_passphrase, type="password", key="real_passphrase")
+            
+            if st.button("💾 Gerçek API Kaydet", key="save_real_api", type="primary"):
+                if not real_key_input or not real_secret_input or not real_pass_input:
+                    st.error("Lütfen tüm alanları doldurun.")
+                else:
+                    if not creds:
+                        creds = APICredentials(is_demo=False)
+                        db.add(creds)
+                    
+                    creds.set_credentials(real_key_input, real_secret_input, real_pass_input, is_demo=False)
+                    db.commit()
+                    st.success("✅ Gerçek API anahtarları kaydedildi!")
+                    st.rerun()
         
         st.divider()
         
-        st.subheader("🔑 API Bağlantı Durumu")
+        st.markdown("##### 🔑 Durum")
         
         client = get_cached_client()
         if client.is_configured():
@@ -1376,7 +1378,7 @@ def show_settings_page():
             
         st.divider()
         
-        st.subheader("🤖 Arka Plan İzleme (Background Scheduler)")
+        st.markdown("##### 🤖 Scheduler")
         
         st.info("⚙️ **Auto-Reopen Ayarları**")
     finally:
@@ -1403,7 +1405,7 @@ def show_settings_page():
             setting = db.query(Settings).filter(Settings.key == "auto_reopen_delay_minutes").first()
             if setting:
                 setting.value = str(auto_reopen_delay)
-                setting.updated_at = datetime.utcnow()
+                # updated_at otomatik olarak TimestampMixin tarafından güncellenir
             else:
                 setting = Settings(key="auto_reopen_delay_minutes", value=str(auto_reopen_delay))
                 db.add(setting)
@@ -1437,17 +1439,7 @@ def show_settings_page():
     is_running = monitor.is_running() if monitor else False
     
     if is_running:
-        st.success("✅ **Background Scheduler ÇALIŞIYOR**")
-        
-        current_delay = st.session_state.auto_reopen_delay_minutes
-        st.info(f"""
-        **Otomatik İzleme Sistemi Aktif:**
-        
-        - ✅ Pozisyonlar her **1 dakikada** kontrol ediliyor
-        - ✅ Orphaned emirler her **1 dakikada** temizleniyor
-        - ✅ Kapanan pozisyonlar **{current_delay} dakika** sonra otomatik yeniden açılıyor
-        - ✅ Tüm işlemler veritabanına kaydediliyor
-        """)
+        st.success(f"✅ Çalışıyor (Auto-reopen: {st.session_state.auto_reopen_delay_minutes} dk)")
         
         col1, col2 = st.columns(2)
         
@@ -1463,17 +1455,7 @@ def show_settings_page():
             st.caption("Scheduler çalışıyor")
     
     else:
-        st.error("⚠️ **Background Scheduler DURMUŞ**")
-        
-        st.warning("""
-        **Otomatik izleme sistemi kapalı:**
-        
-        - ❌ Pozisyonlar otomatik kontrol edilmiyor
-        - ❌ Orphaned emirler temizlenmiyor
-        - ❌ Auto-reopen çalışmıyor
-        
-        **Botu başlatmak için aşağıdaki butona tıklayın:**
-        """)
+        st.error("⚠️ Durmuş - Otomatik izleme kapalı")
         
         col1, col2 = st.columns(2)
         
@@ -1491,16 +1473,9 @@ def show_settings_page():
     
     st.divider()
     
-    st.subheader("🛡️ Kurtarma (Recovery) Ayarları")
+    st.markdown("##### 🛡️ Recovery")
     
-    st.info("""
-    **Basamaklı Kurtarma Özelliği Nedir?**
-    
-    Pozisyonunuz belirli zarar seviyelerine ulaştığında **basamaklı olarak** otomatik kurtarma uygular:
-    - Her basamak yalnızca **bir kez** uygulanır
-    - Sonraki basamak için belirtilen PNL değerine düşmesi beklenir
-    - Maksimum 5 basamak tanımlanabilir
-    """)
+    st.caption("Pozisyon zarar seviyelerine göre basamaklı kurtarma (max 5 basamak)")
     
     # Load current recovery settings from database
     db_recovery = SessionLocal()
@@ -1511,7 +1486,7 @@ def show_settings_page():
         tp_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_tp_usdt").first()
         sl_setting = db_recovery.query(Settings).filter(Settings.key == "recovery_sl_usdt").first()
         
-        current_enabled = enabled_setting.value.lower() == 'true' if enabled_setting else False
+        current_enabled = enabled_setting.value.lower() == 'true' if enabled_setting else True
         current_tp = float(tp_setting.value) if tp_setting else 50.0
         current_sl = float(sl_setting.value) if sl_setting else 100.0
         
@@ -1530,16 +1505,11 @@ def show_settings_page():
                     'sl': float(sl_step.value) if sl_step else 100.0
                 })
         
-        # If no steps, use legacy settings as step 1
+        # If no steps, use default values
         if not steps_data:
-            legacy_trigger = db_recovery.query(Settings).filter(Settings.key == "recovery_trigger_pnl").first()
-            legacy_add = db_recovery.query(Settings).filter(Settings.key == "recovery_add_amount").first()
-            steps_data.append({
-                'trigger': float(legacy_trigger.value) if legacy_trigger else -50.0,
-                'add': float(legacy_add.value) if legacy_add else 100.0,
-                'tp': float(tp_setting.value) if tp_setting else 50.0,
-                'sl': float(sl_setting.value) if sl_setting else 100.0
-            })
+            steps_data = [
+                {'trigger': -50.0, 'add': 3000.0, 'tp': 30.0, 'sl': 1200.0}
+            ]
     finally:
         db_recovery.close()
     
@@ -1639,7 +1609,7 @@ def show_settings_page():
                 existing = db_save.query(Settings).filter(Settings.key == key).first()
                 if existing:
                     existing.value = value
-                    existing.updated_at = datetime.now(timezone.utc)
+                    # updated_at otomatik olarak TimestampMixin tarafından güncellenir
                 else:
                     new_setting = Settings(key=key, value=value)
                     db_save.add(new_setting)
@@ -1661,18 +1631,13 @@ def show_settings_page():
     
     st.divider()
     
-    st.subheader("🌐 OKX Demo Trading Bilgileri")
-    
-    st.markdown("""
-    - **Demo Trading URL:** https://www.okx.com/trade-demo
-    - **API Endpoint:** https://www.okx.com/api/v5
-    - **Mod:** Demo Trading (Simüle Edilmiş İşlemler)
-    - **Avantaj:** Coğrafi kısıtlama yok, global erişim
-    """)
+    with st.expander("🌐 OKX Info"):
+        st.caption("Demo: https://www.okx.com/trade-demo")
+        st.caption("API: https://www.okx.com/api/v5")
     
     st.divider()
     
-    st.subheader("📊 Veritabanı Durumu")
+    st.markdown("##### 📊 Database")
     
     db = SessionLocal()
     try:
@@ -1694,7 +1659,7 @@ def show_settings_page():
         db.close()
 
     st.divider()
-    st.subheader("🛠️ Veritabanı SQL Araçları")
+    st.markdown("##### 🛠️ SQL")
     st.warning("⚠️ **DİKKAT:** Bu bölüm doğrudan veritabanı sorguları çalıştırmanızı sağlar. Sadece ne yaptığınızdan eminseniz kullanın.")
     
     with st.expander("📝 SQL Komutu Çalıştır"):
