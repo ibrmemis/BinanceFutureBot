@@ -7,9 +7,11 @@ import okx.MarketData as MarketData
 import okx.PublicData as PublicData
 from constants import (
     OrderSide, PositionSide, OrderType, TradingMode, 
-    APIConstants, TradingConstants, ErrorMessages
+    APIConstants, TradingConstants
 )
+from utils import setup_logger
 
+logger = setup_logger("okx_client")
 
 def handle_okx_response(func):
     """
@@ -23,14 +25,13 @@ def handle_okx_response(func):
             if isinstance(result, dict) and result.get('code') == '0':
                 return result.get('data')
             elif isinstance(result, dict):
-                print(f"OKX API Error in {func.__name__}: {result.get('msg', 'Unknown error')}")
+                logger.error(f"OKX API Error in {func.__name__}: {result.get('msg', 'Unknown error')}")
                 return None
             return result
         except Exception as e:
-            print(f"Exception in {func.__name__}: {e}")
+            logger.exception(f"Exception in {func.__name__}: {e}")
             return None
     return wrapper
-
 
 class OKXTestnetClient:
     """
@@ -81,7 +82,7 @@ class OKXTestnetClient:
                     # Update flag based on is_demo setting
                     self.flag = APIConstants.OKX_FLAG_DEMO if is_demo else APIConstants.OKX_FLAG_LIVE
         except Exception as e:
-            print(f"Warning: Could not load credentials from database: {e}")
+            logger.warning(f"Could not load credentials from database: {e}")
     
     def _initialize_apis(self) -> None:
         """Initialize OKX API instances if credentials are available"""
@@ -97,7 +98,7 @@ class OKXTestnetClient:
             self.public_api = PublicData.PublicAPI(*common_args)
             
         except Exception as e:
-            print(f"Warning: Failed to initialize OKX APIs: {e}")
+            logger.warning(f"Failed to initialize OKX APIs: {e}")
             self._reset_apis()
     
     def _reset_apis(self) -> None:
@@ -171,7 +172,7 @@ class OKXTestnetClient:
                         }
             return None
         except Exception as e:
-            print(f"Error getting account balance: {e}")
+            logger.error(f"Error getting account balance: {e}")
             return None
     
     def get_all_swap_symbols(self) -> List[str]:
@@ -192,7 +193,7 @@ class OKXTestnetClient:
                 return sorted(symbols)
             return TradingConstants.POPULAR_SYMBOLS
         except Exception as e:
-            print(f"Error getting SWAP symbols: {e}")
+            logger.error(f"Error getting SWAP symbols: {e}")
             return TradingConstants.POPULAR_SYMBOLS
     
     def get_contract_value(self, symbol: str) -> float:
@@ -210,7 +211,7 @@ class OKXTestnetClient:
             if result.get('code') == '0' and result.get('data'):
                 return float(result['data'][0].get('ctVal', TradingConstants.DEFAULT_LOT_SIZE))
         except Exception as e:
-            print(f"Error getting contract value for {symbol}: {e}")
+            logger.error(f"Error getting contract value for {symbol}: {e}")
         
         # Fallback to known values
         if 'ETH' in symbol.upper():
@@ -231,7 +232,7 @@ class OKXTestnetClient:
             if result.get('code') == '0' and result.get('data'):
                 return float(result['data'][0].get('lotSz', TradingConstants.DEFAULT_LOT_SIZE))
         except Exception as e:
-            print(f"Error getting lot size for {symbol}: {e}")
+            logger.error(f"Error getting lot size for {symbol}: {e}")
         
         return TradingConstants.DEFAULT_LOT_SIZE
     
@@ -246,7 +247,7 @@ class OKXTestnetClient:
             if result.get('code') == '0' and result.get('data'):
                 return result['data'][0].get('tickSz', TradingConstants.DEFAULT_TICK_SIZE)
         except Exception as e:
-            print(f"Error getting tick size for {symbol}: {e}")
+            logger.error(f"Error getting tick size for {symbol}: {e}")
         
         return TradingConstants.DEFAULT_TICK_SIZE
     
@@ -280,7 +281,7 @@ class OKXTestnetClient:
                 return float(result['data'][0]['last'])
             return None
         except Exception as e:
-            print(f"Error getting price for {symbol}: {e}")
+            logger.error(f"Error getting price for {symbol}: {e}")
             return None
     
     def place_market_order(self, symbol: str, side: str, quantity: float, 
@@ -294,7 +295,7 @@ class OKXTestnetClient:
             lot_size = self.get_lot_size(symbol)
             rounded_quantity = self.round_to_lot_size(quantity, lot_size)
             
-            print(f"📦 Market order: {symbol} {side} | qty: {quantity} -> {rounded_quantity} (lot: {lot_size})")
+            logger.info(f"📦 Market order: {symbol} {side} | qty: {quantity} -> {rounded_quantity} (lot: {lot_size})")
             
             okx_side = OrderSide.BUY if side.upper() == OrderSide.LONG else OrderSide.SELL
             okx_pos_side = PositionSide.LONG if side.upper() == OrderSide.LONG else PositionSide.SHORT
@@ -316,10 +317,10 @@ class OKXTestnetClient:
                     'quantity': quantity
                 }
             else:
-                print(f"Order failed: {result}")
+                logger.error(f"Order failed: {result}")
             return None
         except Exception as e:
-            print(f"Error placing market order: {e}")
+            logger.error(f"Error placing market order: {e}")
             return None
     
     def place_limit_order(self, symbol: str, side: str, quantity: float, price: float, position_side: str = "long") -> Optional[Dict]:
@@ -346,7 +347,7 @@ class OKXTestnetClient:
                 }
             return None
         except Exception as e:
-            print(f"Error placing limit order: {e}")
+            logger.error(f"Error placing limit order: {e}")
             return None
     
     def place_tp_sl_orders(self, symbol: str, side: str, quantity: float, entry_price: float, tp_price: float, sl_price: float, position_side: str = "long") -> tuple[Optional[str], Optional[str]]:
@@ -386,11 +387,11 @@ class OKXTestnetClient:
                     )
                     if tp_result.get('code') == '0' and tp_result.get('data'):
                         tp_order_id = tp_result['data'][0]['algoId']
-                        print(f"TP order placed: {tp_order_id} @ {formatted_tp}")
+                        logger.info(f"TP order placed: {tp_order_id} @ {formatted_tp}")
                     else:
-                        print(f"TP order failed: {tp_result}")
+                        logger.error(f"TP order failed: {tp_result}")
                 else:
-                    print(f"Invalid TP price: {tp_price} (entry: {entry_price}, side: {side})")
+                    logger.warning(f"Invalid TP price: {tp_price} (entry: {entry_price}, side: {side})")
             
             if sl_price and sl_price > 0:
                 is_valid_sl = (side.upper() == "LONG" and sl_price < validation_price) or \
@@ -410,16 +411,16 @@ class OKXTestnetClient:
                     )
                     if sl_result.get('code') == '0' and sl_result.get('data'):
                         sl_order_id = sl_result['data'][0]['algoId']
-                        print(f"SL order placed: {sl_order_id} @ {formatted_sl}")
+                        logger.info(f"SL order placed: {sl_order_id} @ {formatted_sl}")
                     else:
-                        print(f"SL order failed: {sl_result}")
+                        logger.error(f"SL order failed: {sl_result}")
                 else:
-                    print(f"Invalid SL price: {sl_price} (entry: {entry_price}, side: {side})")
+                    logger.warning(f"Invalid SL price: {sl_price} (entry: {entry_price}, side: {side})")
             
             return tp_order_id, sl_order_id
             
         except Exception as e:
-            print(f"Error placing TP/SL orders: {e}")
+            logger.error(f"Error placing TP/SL orders: {e}")
             return None, None
     
     def get_algo_orders(self, symbol: Optional[str] = None, order_type: str = "trigger") -> list:
@@ -439,13 +440,13 @@ class OKXTestnetClient:
                 return result['data']
             return []
         except Exception as e:
-            print(f"Error getting algo orders: {e}")
+            logger.error(f"Error getting algo orders: {e}")
             return []
     
-    def get_all_open_orders(self, symbol: Optional[str] = None) -> list:
+    def get_all_open_orders(self, symbol: Optional[str] = None) -> Optional[list]:
         """Get ALL open orders including algo orders, conditional orders, iceberg, etc."""
         if not self.trade_api:
-            return []
+            return None
         
         all_orders = []
         
@@ -476,7 +477,8 @@ class OKXTestnetClient:
                 pass
                 
         except Exception as e:
-            print(f"Error getting all open orders: {e}")
+            logger.error(f"Error getting all open orders: {e}")
+            return None
         
         return all_orders
     
@@ -491,7 +493,7 @@ class OKXTestnetClient:
             }])
             return result.get('code') == '0'
         except Exception as e:
-            print(f"Error canceling algo order: {e}")
+            logger.error(f"Error canceling algo order: {e}")
             return False
     
     def amend_algo_order(self, symbol: str, algo_id: str, new_trigger_price: float, quantity: int) -> bool:
@@ -512,7 +514,7 @@ class OKXTestnetClient:
             result = self.trade_api.amend_algo_order(**params)
             return result.get('code') == '0'
         except Exception as e:
-            print(f"Error amending algo order: {e}")
+            logger.error(f"Error amending algo order: {e}")
             return False
     
     def get_position(self, symbol: str, position_side: str = "long") -> Optional[Dict]:
@@ -535,7 +537,7 @@ class OKXTestnetClient:
                         }
             return {'positionAmt': '0', 'posId': None}
         except Exception as e:
-            print(f"Error getting position: {e}")
+            logger.error(f"Error getting position: {e}")
             return None
     
     def get_all_positions(self) -> list:
@@ -561,7 +563,7 @@ class OKXTestnetClient:
                 return active_positions
             return []
         except Exception as e:
-            print(f"Error getting positions: {e}")
+            logger.error(f"Error getting positions: {e}")
             return []
     
     def close_position_market(self, symbol: str, side: str, quantity: int, position_side: str = "long") -> bool:
@@ -579,13 +581,13 @@ class OKXTestnetClient:
             )
             
             if result.get('code') == '0':
-                print(f"Position closed: {result}")
+                logger.info(f"Position closed: {result}")
                 return True
             else:
-                print(f"Failed to close position: {result}")
+                logger.error(f"Failed to close position: {result}")
                 return False
         except Exception as e:
-            print(f"Error closing position: {e}")
+            logger.error(f"Error closing position: {e}")
             return False
     
     def cancel_order(self, symbol: str, order_id: str) -> bool:
@@ -596,7 +598,7 @@ class OKXTestnetClient:
             result = self.trade_api.cancel_order(instId=inst_id, ordId=order_id)
             return result.get('code') == '0'
         except Exception as e:
-            print(f"Error canceling order: {e}")
+            logger.error(f"Error canceling order: {e}")
             return False
     
     def get_order(self, symbol: str, order_id: str) -> Optional[Dict]:
@@ -616,7 +618,7 @@ class OKXTestnetClient:
                 }
             return None
         except Exception as e:
-            print(f"Error getting order: {e}")
+            logger.error(f"Error getting order: {e}")
             return None
     
     def get_account_trades(self, symbol: str, limit: int = 50) -> list:
@@ -630,7 +632,7 @@ class OKXTestnetClient:
                 return list(result['data'])
             return []
         except Exception as e:
-            print(f"Error getting trades: {e}")
+            logger.error(f"Error getting trades: {e}")
             return []
     
     def cancel_all_position_orders(self, symbol: str, position_side: str) -> int:
@@ -645,6 +647,9 @@ class OKXTestnetClient:
             # Get all algo orders for this symbol
             all_orders = self.get_all_open_orders(symbol)
             
+            if all_orders is None:
+                return 0
+
             for order in all_orders:
                 if order.get('state') != 'live':
                     continue
@@ -658,11 +663,11 @@ class OKXTestnetClient:
                     result = self.cancel_algo_order(symbol, algo_id)
                     if result:
                         cancelled_count += 1
-                        print(f"✂️ Cancelled order: {algo_id} ({order_inst_id} {order_pos_side})")
+                        logger.info(f"✂️ Cancelled order: {algo_id} ({order_inst_id} {order_pos_side})")
             
             return cancelled_count
         except Exception as e:
-            print(f"Error cancelling position orders: {e}")
+            logger.error(f"Error cancelling position orders: {e}")
             return cancelled_count
     
     def add_to_position(self, symbol: str, side: str, quantity: float, position_side: str = "long") -> Optional[Dict]:
@@ -672,15 +677,6 @@ class OKXTestnetClient:
     def get_positions_history(self, inst_type: str = "SWAP", limit: int = 100, before: str = None, after: str = None) -> list:
         """
         Get positions history from OKX with pagination support
-        
-        Args:
-            inst_type: Instrument type (SWAP, FUTURES, etc.)
-            limit: Number of results (max 100)
-            before: Pagination cursor - get records before this posId
-            after: Pagination cursor - get records after this posId
-        
-        Returns:
-            List of historical position data
         """
         if not self.account_api:
             return []
@@ -701,5 +697,5 @@ class OKXTestnetClient:
                 return list(result['data'])
             return []
         except Exception as e:
-            print(f"Error getting positions history: {e}")
+            logger.error(f"Error getting positions history: {e}")
             return []

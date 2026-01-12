@@ -6,11 +6,14 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 from database import SessionLocal, Position, Settings
 from database_utils import get_db_session, DatabaseManager
-from trading_strategy import Try1Strategy
+from trading_strategy import TradingStrategy
 from constants import (
     SchedulerConstants, DatabaseConstants, TradingConstants,
     ErrorMessages, SuccessMessages
 )
+from utils import setup_logger
+
+logger = setup_logger("background_scheduler")
 
 class PositionMonitor:
     def __init__(self, auto_reopen_delay_minutes: int = None):
@@ -104,9 +107,9 @@ class PositionMonitor:
     
     def _ensure_strategy(self):
         if self.strategy is None:
-            self.strategy = Try1Strategy()
+            self.strategy = TradingStrategy()
         elif not self.strategy.client.is_configured():
-            self.strategy = Try1Strategy()
+            self.strategy = TradingStrategy()
         
     def check_recovery(self):
         """Check positions for multi-step recovery trigger (PNL drops below threshold)"""
@@ -183,7 +186,7 @@ class PositionMonitor:
                 if pos_id in self.positions_in_recovery:
                     continue
                 
-                print(f"🚨 RECOVERY BASAMAK {pos_data['step_num']} TETİKLENDİ: {pos_data['symbol']} {pos_data['side']} | PNL: ${pos_data['unrealized_pnl']:.2f} <= ${pos_data['trigger_pnl']:.2f} | Eklenecek: ${pos_data['add_amount']:.2f} | TP:{pos_data['tp_usdt']} SL:{pos_data['sl_usdt']}")
+                logger.info(f"🚨 RECOVERY STEP {pos_data['step_num']} TRIGGERED: {pos_data['symbol']} {pos_data['side']} | PNL: ${pos_data['unrealized_pnl']:.2f} <= ${pos_data['trigger_pnl']:.2f} | Add: ${pos_data['add_amount']:.2f} | TP:{pos_data['tp_usdt']} SL:{pos_data['sl_usdt']}")
                 
                 self.positions_in_recovery.add(pos_id)
                 
@@ -196,22 +199,22 @@ class PositionMonitor:
                     )
                     
                     if success:
-                        print(f"✅ {message}")
+                        logger.info(f"✅ {message}")
                     else:
-                        print(f"❌ Recovery başarısız: {message}")
+                        logger.error(f"❌ Recovery failed: {message}")
                         
                 except Exception as e:
-                    print(f"❌ Recovery exception: {pos_data['symbol']} {pos_data['side']} | Hata: {e}")
+                    logger.error(f"❌ Recovery exception: {pos_data['symbol']} {pos_data['side']} | Error: {e}")
                 finally:
                     self.positions_in_recovery.discard(pos_id)
                 
         except Exception as e:
-            print(f"Error checking recovery: {e}")
+            logger.error(f"Error checking recovery: {e}")
             self.positions_in_recovery.clear()
     
     def check_positions(self):
         try:
-            print("LOG: Pozisyonlar kontrol ediliyor...")
+            logger.debug("Checking positions...")
             self._ensure_strategy()
             if not self.strategy or not self.strategy.client.is_configured():
                 return
@@ -243,10 +246,10 @@ class PositionMonitor:
                     # If position is marked OPEN in database but CLOSED on OKX, queue it for reopen
                     if not is_open_on_okx:
                         self.closed_positions_for_reopen[pos.id] = datetime.now(timezone.utc)
-                        print(f"🔴 Pozisyon OKX'te manuel kapatılmış - queue'ya eklendi: {pos.symbol} {pos.side}")
+                        logger.info(f"🔴 Position manually closed on OKX - added to queue: {pos.symbol} {pos.side}")
                 
         except Exception as e:
-            print(f"Error checking positions: {e}")
+            logger.error(f"Error checking positions: {e}")
     
     def check_and_restore_tp_sl_orders(self):
         """Check if TP/SL orders exist for open positions and restore if missing"""
@@ -277,6 +280,10 @@ class PositionMonitor:
 
                     # Get all orders for this position
                     all_orders = self.strategy.client.get_all_open_orders(pos.symbol)
+                    if all_orders is None:
+                        logger.warning(f"Could not fetch orders for {pos.symbol}, skipping check")
+                        continue
+
                     inst_id = self.strategy.client.convert_symbol_to_okx(pos.symbol)
 
                     # Check if TP/SL orders exist
@@ -305,7 +312,7 @@ class PositionMonitor:
                     if not has_tp and tp_usdt:
                         # Check if TP target already reached
                         if unrealized_pnl >= tp_usdt:
-                            print(f"🎯 TP hedefi zaten aşılmış ({unrealized_pnl:.2f} >= {tp_usdt}), pozisyon kapatılıyor: {pos.symbol} {pos.side}")
+                            logger.info(f"🎯 TP target already reached ({unrealized_pnl:.2f} >= {tp_usdt}), closing position: {pos.symbol} {pos.side}")
                             # Close position immediately
                             close_side = "sell" if pos.side == "LONG" else "buy"
                             self.strategy.client.close_position_market(pos.symbol, close_side, int(quantity), position_side)
@@ -339,13 +346,13 @@ class PositionMonitor:
                                 tp_order_id = result['data'][0]['algoId']
                                 pos.tp_order_id = tp_order_id
                                 db.commit()
-                                print(f"✅ TP emri yeniden oluşturuldu: {pos.symbol} {pos.side} @ {formatted_tp}")
+                                logger.info(f"✅ TP order restored: {pos.symbol} {pos.side} @ {formatted_tp}")
                     
                     # Restore missing SL order
                     if not has_sl and sl_usdt:
                         # Check if SL target already reached
                         if unrealized_pnl <= -sl_usdt:
-                            print(f"🛡️ SL hedefi zaten aşılmış ({unrealized_pnl:.2f} <= -{sl_usdt}), pozisyon kapatılıyor: {pos.symbol} {pos.side}")
+                            logger.info(f"🛡️ SL target already reached ({unrealized_pnl:.2f} <= -{sl_usdt}), closing position: {pos.symbol} {pos.side}")
                             # Close position immediately
                             close_side = "sell" if pos.side == "LONG" else "buy"
                             self.strategy.client.close_position_market(pos.symbol, close_side, int(quantity), position_side)
@@ -379,10 +386,10 @@ class PositionMonitor:
                                 sl_order_id = result['data'][0]['algoId']
                                 pos.sl_order_id = sl_order_id
                                 db.commit()
-                                print(f"✅ SL emri yeniden oluşturuldu: {pos.symbol} {pos.side} @ {formatted_sl}")
+                                logger.info(f"✅ SL order restored: {pos.symbol} {pos.side} @ {formatted_sl}")
                 
         except Exception as e:
-            print(f"Error checking/restoring TP/SL orders: {e}")
+            logger.error(f"Error checking/restoring TP/SL orders: {e}")
     
     def cancel_orphaned_orders(self):
         try:
@@ -402,7 +409,7 @@ class PositionMonitor:
             
             # TÜM emir türlerini çek (trigger, conditional, iceberg, twap)
             all_orders = self.strategy.client.get_all_open_orders()
-            if not all_orders:
+            if all_orders is None:
                 return
             
             all_positions = self.strategy.client.get_all_positions()
@@ -435,20 +442,20 @@ class PositionMonitor:
                         result = self.strategy.client.cancel_algo_order(symbol, algo_id)
                         if result:
                             cancelled_count += 1
-                            print(f"✂️ Cancelled orphaned {ord_type} order: {algo_id} ({inst_id} {pos_side})")
+                            logger.info(f"✂️ Cancelled orphaned {ord_type} order: {algo_id} ({inst_id} {pos_side})")
                         else:
-                            print(f"❌ Failed to cancel {ord_type} order: {algo_id}")
+                            logger.error(f"❌ Failed to cancel {ord_type} order: {algo_id}")
             
             if cancelled_count > 0:
-                print(f"Total orphaned orders cancelled: {cancelled_count}")
+                logger.info(f"Total orphaned orders cancelled: {cancelled_count}")
                 
         except Exception as e:
-            print(f"Error cancelling orphaned orders: {e}")
+            logger.error(f"Error cancelling orphaned orders: {e}")
     
     def reopen_closed_positions(self):
         try:
             if self.closed_positions_for_reopen:
-                print(f"LOG: Yeniden açılmayı bekleyen {len(self.closed_positions_for_reopen)} pozisyon var.")
+                logger.info(f"Waiting to reopen {len(self.closed_positions_for_reopen)} positions.")
             self._ensure_strategy()
             if not self.strategy or not self.strategy.client.is_configured():
                 return
@@ -478,7 +485,7 @@ class PositionMonitor:
                         if is_open_on_okx:
                             # Pozisyon zaten OKX'te açık - queue'dan çıkar
                             positions_to_remove.append(pos_id)
-                            print(f"Pozisyon zaten OKX'te açık: {pos.symbol} {pos.side} - queue'dan çıkarıldı")
+                            logger.info(f"Position already open on OKX: {pos.symbol} {pos.side} - removed from queue")
                         elif pos.is_open:
                             # Database'de açık ama OKX'te kapalı - yeniden aç
                             positions_to_reopen.append((pos_id, pos))
@@ -494,7 +501,7 @@ class PositionMonitor:
                         # Kontrat miktarını hesapla
                         current_price = self.strategy.client.get_symbol_price(pos.symbol)
                         if not current_price:
-                            print(f"Fiyat alınamadı: {pos.symbol}")
+                            logger.warning(f"Price not available: {pos.symbol}")
                             continue
                         
                         quantity = self.strategy.calculate_quantity_for_usdt(
@@ -513,7 +520,7 @@ class PositionMonitor:
                         )
                         
                         if not order_result:
-                            print(f"Pozisyon yeniden açılamadı: {pos.symbol} {pos.side}")
+                            logger.error(f"Failed to reopen position: {pos.symbol} {pos.side}")
                             continue
                         
                         import time
@@ -523,7 +530,7 @@ class PositionMonitor:
                         okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
                         
                         if not okx_pos:
-                            print(f"Pozisyon bilgisi alınamadı: {pos.symbol} {pos.side}")
+                            logger.error(f"Failed to get position info: {pos.symbol} {pos.side}")
                             continue
                         
                         new_entry_price = float(okx_pos.get('entryPrice', 0))
@@ -531,7 +538,7 @@ class PositionMonitor:
                         new_pos_id = okx_pos.get('posId')
                         
                         if new_quantity == 0 or not new_pos_id:
-                            print(f"Geçersiz pozisyon bilgisi: {pos.symbol} {pos.side}")
+                            logger.error(f"Invalid position info: {pos.symbol} {pos.side}")
                             continue
                         
                         # TP/SL fiyatlarını hesapla (orijinal değerleri kullan)
@@ -551,16 +558,16 @@ class PositionMonitor:
                         if pos.tp_order_id:
                             try:
                                 self.strategy.client.cancel_algo_order(pos.symbol, pos.tp_order_id)
-                                print(f"🗑️ Eski TP emri iptal edildi: {pos.tp_order_id}")
+                                logger.info(f"🗑️ Old TP order cancelled: {pos.tp_order_id}")
                             except Exception as e:
-                                print(f"⚠️ Eski TP iptal edilemedi (muhtemelen zaten yok): {e}")
+                                logger.warning(f"⚠️ Could not cancel old TP: {e}")
                         
                         if pos.sl_order_id:
                             try:
                                 self.strategy.client.cancel_algo_order(pos.symbol, pos.sl_order_id)
-                                print(f"🗑️ Eski SL emri iptal edildi: {pos.sl_order_id}")
+                                logger.info(f"🗑️ Old SL order cancelled: {pos.sl_order_id}")
                             except Exception as e:
-                                print(f"⚠️ Eski SL iptal edilemedi (muhtemelen zaten yok): {e}")
+                                logger.warning(f"⚠️ Could not cancel old SL: {e}")
                         
                         # YENİ TP/SL emirlerini yerleştir
                         tp_order_id, sl_order_id = self.strategy.client.place_tp_sl_orders(
@@ -594,11 +601,11 @@ class PositionMonitor:
                         
                         # Başarılı reopen - queue'dan çıkar
                         positions_to_remove.append(pos_id)
-                        print(f"✅ Pozisyon yeniden açıldı (UPDATE): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Bekleme: {self.auto_reopen_delay_minutes} dk | DB ID: {pos.id}")
+                        logger.info(f"✅ Position reopened (UPDATE): {pos.symbol} {pos.side} @ ${new_entry_price:.2f} | Qty: {new_quantity} | Delay: {self.auto_reopen_delay_minutes} min | DB ID: {pos.id}")
                         
                     except Exception as e:
                         db.rollback()  # Session'ı temizle
-                        print(f"⚠️ Pozisyon yeniden açılamadı (tekrar denenecek): {pos.symbol} {pos.side} | Hata: {e}")
+                        logger.error(f"⚠️ Failed to reopen position (will retry): {pos.symbol} {pos.side} | Error: {e}")
                         # Queue'da bırak, bir sonraki check'te tekrar denesin
                 
                 # Başarılı ve geçersiz pozisyonları queue'dan temizle
@@ -607,7 +614,7 @@ class PositionMonitor:
                         del self.closed_positions_for_reopen[pos_id]
                 
         except Exception as e:
-            print(f"Error reopening positions: {e}")
+            logger.error(f"Error reopening positions: {e}")
     
     def start(self):
         try:
@@ -654,14 +661,14 @@ class PositionMonitor:
                 
                 self.scheduler.start()
         except Exception as e:
-            print(f"Error starting scheduler: {e}")
+            logger.error(f"Error starting scheduler: {e}")
     
     def stop(self):
         try:
             if self.scheduler.running:
                 self.scheduler.shutdown(wait=False)
         except Exception as e:
-            print(f"Error stopping scheduler: {e}")
+            logger.error(f"Error stopping scheduler: {e}")
     
     def is_running(self):
         return self.scheduler.running
@@ -683,7 +690,7 @@ def get_monitor():
             monitor = PositionMonitor()
             monitor.start()
     except Exception as e:
-        print(f"Error getting monitor: {e}")
+        logger.error(f"Error getting monitor: {e}")
         if not manually_stopped:
             monitor = PositionMonitor()
             try:
@@ -700,7 +707,7 @@ def stop_monitor():
             manually_stopped = True
             return True
     except Exception as e:
-        print(f"Error stopping monitor: {e}")
+        logger.error(f"Error stopping monitor: {e}")
     return False
 
 def start_monitor(auto_reopen_delay_minutes: int = 5):
@@ -710,9 +717,13 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
 
         # Reset orders_disabled for all positions when bot starts
         with get_db_session() as db:
+            disabled_positions = db.query(Position).filter(Position.orders_disabled == True).count()
             db.query(Position).update({"orders_disabled": False})
             db.commit()
-            print("🔄 Tüm pozisyonlar için emir tekrar açma özelliği aktifleştirildi")
+            if disabled_positions > 0:
+                logger.info(f"🔄 {disabled_positions} positions re-enabled for order restoration")
+            else:
+                logger.info("🔄 All positions already enabled for order restoration")
 
         # Auto-enable recovery when bot starts
         with get_db_session() as db:
@@ -723,12 +734,12 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
                 recovery_setting = Settings(key="recovery_enabled", value="true")
                 db.add(recovery_setting)
             db.commit()
-            print("🛡️ Kurtarma özelliği otomatik aktifleştirildi")
+            logger.info("🛡️ Recovery feature auto-enabled")
         
         if monitor is None:
             monitor = PositionMonitor(auto_reopen_delay_minutes)
             monitor.start()
-            print(f"🤖 Monitor başlatıldı - Auto-reopen süresi: {auto_reopen_delay_minutes} dakika")
+            logger.info(f"🤖 Monitor started - Auto-reopen delay: {auto_reopen_delay_minutes} minutes")
             return True
         elif not monitor.is_running():
             try:
@@ -737,9 +748,9 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
                 pass
             monitor = PositionMonitor(auto_reopen_delay_minutes)
             monitor.start()
-            print(f"🤖 Monitor başlatıldı - Auto-reopen süresi: {auto_reopen_delay_minutes} dakika")
+            logger.info(f"🤖 Monitor started - Auto-reopen delay: {auto_reopen_delay_minutes} minutes")
             return True
     except Exception as e:
-        print(f"Error starting monitor: {e}")
+        logger.error(f"Error starting monitor: {e}")
         return False
     return False

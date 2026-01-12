@@ -5,7 +5,9 @@ from contextlib import contextmanager
 from typing import Generator, Optional, Any
 from sqlalchemy.orm import Session
 from database import SessionLocal
+from utils import setup_logger
 
+logger = setup_logger("database_utils")
 
 @contextmanager
 def get_db_session() -> Generator[Session, None, None]:
@@ -57,7 +59,7 @@ class DatabaseManager:
                 db.commit()
                 return True
         except Exception as e:
-            print(f"Batch update error: {e}")
+            logger.error(f"Batch update error: {e}")
             return False
     
     @staticmethod
@@ -86,5 +88,5 @@ class DatabaseManager:
                 db.commit()
                 return True
         except Exception as e:
-            print(f"Set setting error: {e}")
+            logger.error(f"Set setting error: {e}")
             return False

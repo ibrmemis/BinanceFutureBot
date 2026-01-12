@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from typing import Tuple, Optional, Union
 from dataclasses import dataclass
+import time
+
 from okx_client import OKXTestnetClient
 from database_utils import get_db_session
 from database import Position, SessionLocal
@@ -8,7 +10,9 @@ from constants import (
     OrderSide, PositionSide, TradingConstants, 
     ErrorMessages, SuccessMessages, TradingMode, OrderType
 )
+from utils import setup_logger
 
+logger = setup_logger("trading_strategy")
 
 @dataclass
 class PositionParams:
@@ -74,7 +78,7 @@ class TradingCalculator:
         return tp_price, sl_price
 
 
-class ModernTradingStrategy:
+class TradingStrategy:
     """
     Modern trading strategy with improved error handling and type safety
     """
@@ -125,7 +129,7 @@ class ModernTradingStrategy:
         if validation_error:
             return PositionResult(False, validation_error)
         
-        print(f"LOG: {symbol} için {side} pozisyonu açılıyor... Büyüklük: {amount_usdt} USDT, Kaldıraç: {leverage}x")
+        logger.info(f"Opening {side} position for {symbol}... Size: {amount_usdt} USDT, Leverage: {leverage}x")
         
         # Set position mode and leverage
         self.client.set_position_mode("long_short_mode")
@@ -146,17 +150,16 @@ class ModernTradingStrategy:
         )
         
         if quantity < 1:
-            return PositionResult(False, "Geçersiz miktar (minimum 1 kontrat)")
+            return PositionResult(False, "Invalid quantity (minimum 1 contract)")
         
         # Place market order
         order = self.client.place_market_order(symbol, side, quantity, position_side)
         if not order:
             return PositionResult(False, ErrorMessages.ORDER_FAILED)
         
-        print(f"LOG: {symbol} emri başarıyla açıldı. Giriş Fiyatı: ${current_price:.4f}")
+        logger.info(f"Order placed for {symbol}. Entry Price: ${current_price:.4f}")
         
         # Get position ID from OKX
-        import time
         time.sleep(TradingConstants.ORDER_DELAY_SECONDS)
         
         okx_position = self.client.get_position(symbol, position_side)
@@ -180,7 +183,7 @@ class ModernTradingStrategy:
             )
         
         tp_sl_msg = self._format_tp_sl_message(tp_price, sl_price, tp_order_id, sl_order_id)
-        message = f"Pozisyon açıldı: {symbol} {side} {quantity} kontrat @ ${current_price:.4f}{tp_sl_msg}"
+        message = f"Position opened: {symbol} {side} {quantity} contracts @ ${current_price:.4f}{tp_sl_msg}"
         
         return PositionResult(True, message, order_id=order.get('orderId'))
     
@@ -190,7 +193,6 @@ class ModernTradingStrategy:
         position_side: str
     ) -> Tuple[Optional[str], Optional[str]]:
         """Place TP and SL orders with proper validation"""
-        import time
         
         tp_order_id = None
         sl_order_id = None
@@ -251,14 +253,14 @@ class ModernTradingStrategy:
             
             if result.get('code') == '0' and result.get('data'):
                 order_id = result['data'][0]['algoId']
-                print(f"{order_type} order placed: {order_id} @ ${formatted_price}")
+                logger.info(f"{order_type} order placed: {order_id} @ ${formatted_price}")
                 return order_id
             else:
-                print(f"❌ {order_type} order FAILED: {result.get('msg', 'Unknown error')}")
+                logger.error(f"{order_type} order FAILED: {result.get('msg', 'Unknown error')}")
                 return None
                 
         except Exception as e:
-            print(f"❌ {order_type} order exception: {e}")
+            logger.error(f"{order_type} order exception: {e}")
             return None
     
     def _save_position_to_db(
@@ -295,12 +297,13 @@ class ModernTradingStrategy:
                 tp_sl_msg = self._format_tp_sl_message(
                     None, None, tp_order_id, sl_order_id
                 )
-                message = f"{SuccessMessages.POSITION_OPENED}: {params.symbol} {params.side} {quantity} kontrat @ ${entry_price:.4f}{tp_sl_msg}"
+                message = f"{SuccessMessages.POSITION_OPENED}: {params.symbol} {params.side} {quantity} contracts @ ${entry_price:.4f}{tp_sl_msg}"
                 
                 return PositionResult(True, message, position.id)
                 
         except Exception as e:
-            return PositionResult(False, f"Veritabanı hatası: {e}")
+            logger.error(f"Database error: {e}")
+            return PositionResult(False, f"Database error: {e}")
     
     @staticmethod
     def _format_tp_sl_message(
@@ -321,14 +324,6 @@ class ModernTradingStrategy:
         
         return f" ({', '.join(parts)})" if parts else ""
 
-
-# Backward compatibility alias
-Try1Strategy = ModernTradingStrategy
-
-
-class Try1Strategy(ModernTradingStrategy):
-    """Legacy class name for backward compatibility"""
-    
     def calculate_quantity_for_usdt(
         self,
         amount_usdt: float,
@@ -375,70 +370,63 @@ class Try1Strategy(ModernTradingStrategy):
         
         Returns: (success, message)
         """
-        from datetime import timezone
         
         db = SessionLocal()
         try:
             pos = db.query(Position).filter(Position.id == position_db_id).first()
             if not pos:
-                return False, "Pozisyon bulunamadı"
+                return False, "Position not found"
             
             if not pos.is_open:
-                return False, "Pozisyon açık değil"
+                return False, "Position is not open"
             
             symbol = str(pos.symbol)
             side = str(pos.side)
             leverage = int(pos.leverage)
             position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
             
-            # Use recovery step TP/SL values (passed from background_scheduler based on current step)
-            
             # Verify position exists on OKX before proceeding
             okx_pos_check = self.client.get_position(symbol, position_side)
             if not okx_pos_check or abs(float(okx_pos_check.get('positionAmt', 0))) == 0:
-                return False, "Pozisyon OKX'te bulunamadı veya kapalı"
+                return False, "Position not found on OKX or closed"
             
-            # Verify position side matches
-            okx_pos_side = okx_pos_check.get('posSide', position_side) if 'posSide' in str(okx_pos_check) else position_side
-            
-            print(f"🔄 RECOVERY başlatılıyor: {symbol} {side} | DB ID: {position_db_id}")
+            logger.info(f"🔄 RECOVERY starting: {symbol} {side} | DB ID: {position_db_id}")
             
             # Step 1: Cancel all TP/SL orders for this position
             cancelled_count = self.client.cancel_all_position_orders(symbol, position_side)
-            print(f"✂️ {cancelled_count} emir iptal edildi")
+            logger.info(f"✂️ {cancelled_count} orders cancelled")
             
             # Step 2: Get current price and calculate add quantity
             current_price = self.client.get_symbol_price(symbol)
             if not current_price:
-                return False, "Fiyat alınamadı"
+                return False, "Price not available"
             
             add_quantity = self.calculate_quantity_for_usdt(add_amount_usdt, leverage, current_price, symbol)
             if add_quantity < 0.01:
-                return False, "Ekleme miktarı çok düşük (minimum 0.01 kontrat)"
+                return False, "Add amount too low (min 0.01 contracts)"
             
             # Step 3: Add to position
             order_result = self.client.add_to_position(symbol, side, add_quantity, position_side)
             if not order_result:
-                return False, "Pozisyona ekleme yapılamadı"
+                return False, "Failed to add to position"
             
-            print(f"➕ {add_quantity} kontrat eklendi ({add_amount_usdt} USDT)")
+            logger.info(f"➕ {add_quantity} contracts added ({add_amount_usdt} USDT)")
             
-            import time
             time.sleep(2)
             
             # Step 4: Get updated position info from OKX
             okx_pos = self.client.get_position(symbol, position_side)
             if not okx_pos:
-                return False, "Güncel pozisyon bilgisi alınamadı"
+                return False, "Failed to get updated position info"
             
             new_entry_price = float(okx_pos.get('entryPrice', 0))
             new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
             new_pos_id = okx_pos.get('posId')
             
             if new_quantity == 0:
-                return False, "Pozisyon miktarı 0"
+                return False, "Position quantity is 0"
             
-            # Step 5: Calculate new TP/SL prices based on updated position (using recovery step TP/SL values)
+            # Step 5: Calculate new TP/SL prices based on updated position
             tp_price, sl_price = self.calculate_tp_sl_prices(
                 entry_price=new_entry_price,
                 side=side,
@@ -461,10 +449,10 @@ class Try1Strategy(ModernTradingStrategy):
                 position_side=position_side
             )
             
-            # Step 7: Update database record with recovery step TP/SL values
+            # Step 7: Update database record
             original_amount = float(pos.amount_usdt)
             
-            # Update position fields (TP/SL updated to recovery step values)
+            # Update position fields
             pos.entry_price = new_entry_price
             pos.quantity = new_quantity
             pos.position_id = new_pos_id
@@ -480,139 +468,18 @@ class Try1Strategy(ModernTradingStrategy):
             
             db.commit()
             
-            msg = f"✅ RECOVERY #{current_recovery_count + 1} tamamlandı: {symbol} {side} | Başlangıç miktar: ${original_amount:.2f} (değişmedi) | Eklenen: ${add_amount_usdt:.2f} | Giriş: ${new_entry_price:.4f} | Kontrat: {new_quantity}"
-            print(msg)
+            msg = f"✅ RECOVERY #{current_recovery_count + 1} completed: {symbol} {side} | Start: ${original_amount:.2f} | Added: ${add_amount_usdt:.2f} | Entry: ${new_entry_price:.4f} | Qty: {new_quantity}"
+            logger.info(msg)
             
             return True, msg
             
         except Exception as e:
             db.rollback()
-            error_msg = f"Recovery hatası: {e}"
-            print(f"❌ {error_msg}")
+            error_msg = f"Recovery error: {e}"
+            logger.error(f"❌ {error_msg}")
             return False, error_msg
         finally:
             db.close()
-    
-    def check_and_update_positions(self):
-        if not self.client.is_configured():
-            print("OKX client not configured")
-            return
-        
-        db = SessionLocal()
-        try:
-            from datetime import timedelta
-            grace_period_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
-            
-            # Only check positions older than 120 seconds (grace period for new positions - OKX needs time to update)
-            # AND only positions that have a position_id (meaning they were actually opened on OKX)
-            open_positions = db.query(Position).filter(
-                Position.is_open == True,
-                Position.opened_at < grace_period_cutoff,
-                Position.position_id != None
-            ).all()
-            
-            for pos in open_positions:
-                # Extract all values from SQLAlchemy columns for type safety
-                pos_side_value = str(pos.position_side) if pos.position_side is not None else None
-                pos_symbol = str(pos.symbol)
-                pos_tp_usdt = float(getattr(pos, 'tp_usdt')) if getattr(pos, 'tp_usdt', None) is not None else None
-                pos_sl_usdt = float(getattr(pos, 'sl_usdt')) if getattr(pos, 'sl_usdt', None) is not None else None
-                pos_entry_price_val = float(getattr(pos, 'entry_price')) if getattr(pos, 'entry_price', None) is not None else None
-                
-                if pos_side_value is not None:
-                    position_side = pos_side_value
-                else:
-                    position_side = "long" if str(pos.side) == "LONG" else "short"
-                
-                okx_pos = self.client.get_position(pos_symbol, position_side)
-                
-                if not okx_pos:
-                    print(f"Could not fetch position from OKX: {pos_symbol} {position_side}")
-                    continue
-                
-                okx_pos_id = okx_pos.get('posId')
-                okx_pos_amt = float(okx_pos.get('positionAmt', 0))
-                
-                # Extract position_id value for comparison
-                pos_position_id = str(pos.position_id) if pos.position_id is not None else None
-                
-                if pos_position_id is not None:
-                    if okx_pos_id and okx_pos_id != pos_position_id and okx_pos_amt != 0:
-                        print(f"Position ID mismatch: DB={pos_position_id}, OKX={okx_pos_id}")
-                        continue
-                
-                if okx_pos_amt == 0:
-                    db.query(Position).filter(Position.id == pos.id).update({
-                        'is_open': False,
-                        'closed_at': datetime.now(timezone.utc)
-                    })
-                    db.flush()
-                    
-                    realized_pnl = 0.0
-                    close_reason = "MANUAL"
-                    
-                    trades = self.client.get_account_trades(pos_symbol, limit=100)
-                    
-                    if trades and len(trades) > 0:
-                        position_opened_ts = int(pos.opened_at.timestamp() * 1000)
-                        
-                        for trade in trades:
-                            trade_time = int(trade.get('ts', 0))
-                            
-                            if trade_time < position_opened_ts:
-                                continue
-                            
-                            trade_side = trade.get('side', '')
-                            trade_pos_side = trade.get('posSide', '')
-                            exec_type = trade.get('execType', '')
-                            
-                            if trade_pos_side == position_side:
-                                pnl = float(trade.get('fillPnl', 0))
-                                realized_pnl += pnl
-                                
-                                # Check if algo order (TP/SL) triggered
-                                if exec_type == 'T' and trade_side in ['sell', 'buy']:
-                                    # Determine TP or SL based on PnL
-                                    if pnl > 0:
-                                        close_reason = "TP"
-                                    elif pnl < 0:
-                                        close_reason = "SL"
-                        
-                        # Fallback to PnL-based detection if execType didn't determine it
-                        if close_reason == "MANUAL":
-                            if pos_tp_usdt is not None and realized_pnl >= pos_tp_usdt:
-                                close_reason = "TP"
-                            elif pos_sl_usdt is not None and realized_pnl <= -pos_sl_usdt:
-                                close_reason = "SL"
-                    
-                    db.query(Position).filter(Position.id == pos.id).update({
-                        'pnl': realized_pnl,
-                        'close_reason': close_reason
-                    })
-                    
-                    db.commit()
-                    print(f"Position closed: {pos.symbol} {pos.side} - PnL: ${realized_pnl:.2f} ({close_reason})")
-                
-                elif okx_pos:
-                    unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
-                    current_entry = float(okx_pos.get('entryPrice', 0))
-                    
-                    # Use pre-extracted entry_price value
-                    if current_entry > 0 and pos_entry_price_val is not None and abs(current_entry - pos_entry_price_val) > 0.01:
-                        db.query(Position).filter(Position.id == pos.id).update({
-                            'entry_price': current_entry
-                        })
-                        db.commit()
-                    
-                    # Use pre-extracted TP/SL values for monitoring unrealized PnL
-                    if pos_tp_usdt is not None and unrealized_pnl >= pos_tp_usdt:
-                        print(f"TP target reached for {pos_symbol} {str(pos.side)}: ${unrealized_pnl:.2f}")
-                    
-                    if pos_sl_usdt is not None and unrealized_pnl <= -pos_sl_usdt:
-                        print(f"SL target reached for {pos_symbol} {str(pos.side)}: ${unrealized_pnl:.2f}")
-            
-        except Exception as e:
-            print(f"Error checking positions: {e}")
-            db.rollback()
-        finally:
-            db.close()
+
+# Backward compatibility alias
+Try1Strategy = TradingStrategy
