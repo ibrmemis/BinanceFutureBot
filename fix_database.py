@@ -55,7 +55,8 @@ def fix_database():
                     ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     ADD COLUMN IF NOT EXISTS original_tp_usdt FLOAT,
-                    ADD COLUMN IF NOT EXISTS original_sl_usdt FLOAT
+                    ADD COLUMN IF NOT EXISTS original_sl_usdt FLOAT,
+                    ADD COLUMN IF NOT EXISTS orders_disabled BOOLEAN DEFAULT FALSE
                 """))
                 print("✅ Positions tablosu güncellendi")
             except Exception as e:

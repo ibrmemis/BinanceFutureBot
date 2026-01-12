@@ -1093,13 +1093,20 @@ def show_orders_page():
             })
         
         df = pd.DataFrame(table_data)
-        
-        # Use column_config with ProgressColumn for distance visualization
-        st.dataframe(
+
+        # Add checkbox column for selection
+        df.insert(0, "Seç", False)
+
+        # Use data_editor for selectable rows
+        edited_df = st.data_editor(
             df,
             width="stretch",
             hide_index=True,
             column_config={
+                "Seç": st.column_config.CheckboxColumn(
+                    "Seç",
+                    help="Bu emri seçmek için işaretleyin"
+                ),
                 "Tetik Mesafesi": st.column_config.ProgressColumn(
                     "Tetik Mesafesi",
                     help="Trigger fiyata yakınlık (100% = tetiklendi)",
@@ -1112,11 +1119,87 @@ def show_orders_page():
                     format="$%.2f"
                 ),
                 "is_tp": None,  # Hide this helper column
-            }
+            },
+            disabled=["Coin", "Pozisyon", "Tür", "Trigger Fiyat", "Pozisyon Değeri", "Tetik Mesafesi", "Kalan USDT", "Beklenen PNL"]
         )
         
         st.divider()
         st.markdown("##### 🛠️ İşlemler")
+
+        # Bulk operations for selected orders
+        selected_orders = edited_df[edited_df["Seç"] == True]
+        if not selected_orders.empty:
+            st.markdown("##### 📋 Seçilen Emirler")
+            st.info(f"{len(selected_orders)} emir seçildi")
+
+            col_bulk1, col_bulk2 = st.columns(2)
+
+            with col_bulk1:
+                if st.button("🗑️ Seçilen Emirleri İptal Et", type="secondary", use_container_width=True):
+                    cancelled_count = 0
+                    for idx, row in selected_orders.iterrows():
+                        algo_id = order_ids[idx]  # Get algo_id from original order list
+                        symbol_base = algo_orders[idx].get('instId', '').replace('-USDT-SWAP', 'USDT')
+                        success = client.cancel_algo_order(symbol_base, algo_id)
+                        if success:
+                            cancelled_count += 1
+                    if cancelled_count > 0:
+                        st.success(f"✅ {cancelled_count} emir iptal edildi!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Emirler iptal edilemedi")
+
+            with col_bulk2:
+                if st.button("🚫 Emirleri Kapat ve Tekrar Açma", type="primary", use_container_width=True,
+                           help="Seçilen emirleri iptal eder ve bot yeniden başlayana kadar tekrar açmaz"):
+                    cancelled_count = 0
+                    disabled_count = 0
+
+                    # Get database session
+                    db = SessionLocal()
+                    try:
+                        for idx, row in selected_orders.iterrows():
+                            algo_id = order_ids[idx]
+                            order = algo_orders[idx]
+                            inst_id = order.get('instId', '')
+                            pos_side = order.get('posSide', '')
+
+                            # Cancel the order
+                            symbol_base = inst_id.replace('-USDT-SWAP', 'USDT')
+                            success = client.cancel_algo_order(symbol_base, algo_id)
+                            if success:
+                                cancelled_count += 1
+
+                                # Find and disable the position
+                                symbol_clean = inst_id.replace('-USDT-SWAP', '').replace('-', '')
+                                position_side_db = "long" if pos_side == "long" else "short"
+
+                                # Find position by symbol and position_side
+                                position = db.query(Position).filter(
+                                    Position.symbol == symbol_clean,
+                                    Position.position_side == position_side_db,
+                                    Position.is_open == True
+                                ).first()
+
+                                if position:
+                                    position.orders_disabled = True
+                                    disabled_count += 1
+
+                        db.commit()
+
+                        if cancelled_count > 0:
+                            st.success(f"✅ {cancelled_count} emir iptal edildi, {disabled_count} pozisyon için emir tekrar açma devre dışı!")
+                            st.rerun()
+                        else:
+                            st.error("❌ İşlem başarısız")
+
+                    except Exception as e:
+                        db.rollback()
+                        st.error(f"❌ Hata: {e}")
+                    finally:
+                        db.close()
+        else:
+            st.caption("📌 Emir seçmek için yukarıdaki tablodaki checkbox'ları kullanın")
         
         order_ids = [order.get('algoId', 'N/A') for order in algo_orders]
         order_map = {order.get('algoId'): order for order in algo_orders}

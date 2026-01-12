@@ -161,6 +161,7 @@ class Position(Base, TimestampMixin):
     parent_position_id = Column(Integer, ForeignKey('positions.id'), nullable=True)  # Added FK
     recovery_count = Column(Integer, default=0, nullable=False)
     last_recovery_at = Column(DateTime, nullable=True)
+    orders_disabled = Column(Boolean, default=False, nullable=False)  # Disable TP/SL order restoration until bot restart
     
     # Composite indexes for common queries
     __table_args__ = (

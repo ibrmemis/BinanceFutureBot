@@ -259,26 +259,30 @@ class PositionMonitor:
                 active_positions = db.query(Position).filter(Position.is_open == True).all()
                 
                 for pos in active_positions:
+                    # Check if orders are disabled for this position
+                    if getattr(pos, 'orders_disabled', False):
+                        continue  # Skip restoring orders for this position
+
                     position_side = pos.position_side if pos.position_side else ("long" if pos.side == "LONG" else "short")
-                    
+
                     # Get current position from OKX
                     okx_pos = self.strategy.client.get_position(pos.symbol, position_side)
                     if not okx_pos or abs(float(okx_pos.get('positionAmt', 0))) == 0:
                         continue
-                    
+
                     # Get current PNL
                     unrealized_pnl = float(okx_pos.get('unrealizedProfit', 0))
                     entry_price = float(okx_pos.get('entryPrice', 0))
                     quantity = abs(float(okx_pos.get('positionAmt', 0)))
-                    
+
                     # Get all orders for this position
                     all_orders = self.strategy.client.get_all_open_orders(pos.symbol)
                     inst_id = self.strategy.client.convert_symbol_to_okx(pos.symbol)
-                    
+
                     # Check if TP/SL orders exist
                     has_tp = False
                     has_sl = False
-                    
+
                     for order in all_orders:
                         if order.get('instId') == inst_id and order.get('posSide') == position_side:
                             trigger_px = float(order.get('triggerPx', 0))
@@ -292,11 +296,11 @@ class PositionMonitor:
                                     has_tp = True
                                 elif trigger_px > entry_price:
                                     has_sl = True
-                    
+
                     # Use original TP/SL values if available
                     tp_usdt = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
                     sl_usdt = pos.original_sl_usdt if pos.original_sl_usdt is not None else pos.sl_usdt
-                    
+
                     # Restore missing TP order
                     if not has_tp and tp_usdt:
                         # Check if TP target already reached
@@ -703,7 +707,13 @@ def start_monitor(auto_reopen_delay_minutes: int = 5):
     global monitor, manually_stopped
     try:
         manually_stopped = False
-        
+
+        # Reset orders_disabled for all positions when bot starts
+        with get_db_session() as db:
+            db.query(Position).update({"orders_disabled": False})
+            db.commit()
+            print("🔄 Tüm pozisyonlar için emir tekrar açma özelliği aktifleştirildi")
+
         # Auto-enable recovery when bot starts
         with get_db_session() as db:
             recovery_setting = db.query(Settings).filter(Settings.key == "recovery_enabled").first()
