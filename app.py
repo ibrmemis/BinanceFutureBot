@@ -1,5 +1,10 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
+
+# Load environment variables explicitly
+load_dotenv()
+
 from database import init_db, SessionLocal, APICredentials
 from database_utils import DatabaseManager
 from background_scheduler import get_monitor, stop_monitor, start_monitor

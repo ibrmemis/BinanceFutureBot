@@ -286,23 +286,59 @@ class PositionMonitor:
 
                     inst_id = self.strategy.client.convert_symbol_to_okx(pos.symbol)
 
-                    # Check if TP/SL orders exist
-                    has_tp = False
-                    has_sl = False
+                    # Check if TP/SL orders exist and match quantity
+                    total_tp_qty = 0.0
+                    total_sl_qty = 0.0
+                    
+                    # Collect existing orders to potentially cancel them if mismatch
+                    existing_tp_orders = []
+                    existing_sl_orders = []
 
                     for order in all_orders:
                         if order.get('instId') == inst_id and order.get('posSide') == position_side:
                             trigger_px = float(order.get('triggerPx', 0))
+                            order_qty = float(order.get('sz', 0))
+                            
+                            is_tp = False
+                            is_sl = False
+                            
                             if pos.side == "LONG":
                                 if trigger_px > entry_price:
-                                    has_tp = True
+                                    is_tp = True
                                 elif trigger_px < entry_price:
-                                    has_sl = True
+                                    is_sl = True
                             else:  # SHORT
                                 if trigger_px < entry_price:
-                                    has_tp = True
+                                    is_tp = True
                                 elif trigger_px > entry_price:
-                                    has_sl = True
+                                    is_sl = True
+                            
+                            if is_tp:
+                                total_tp_qty += order_qty
+                                existing_tp_orders.append(order)
+                            elif is_sl:
+                                total_sl_qty += order_qty
+                                existing_sl_orders.append(order)
+
+                    # Check for quantity mismatch (allow 5% tolerance for rounding/partial fills)
+                    # If mismatch found, we will cancel ALL orders and let the restoration logic below recreate them
+                    qty_tolerance = quantity * 0.05
+                    tp_mismatch = abs(total_tp_qty - quantity) > qty_tolerance
+                    sl_mismatch = abs(total_sl_qty - quantity) > qty_tolerance
+                    
+                    has_tp = not tp_mismatch and total_tp_qty > 0
+                    has_sl = not sl_mismatch and total_sl_qty > 0
+                    
+                    if (tp_mismatch and total_tp_qty > 0) or (sl_mismatch and total_sl_qty > 0):
+                        logger.info(f"⚠️ TP/SL Quantity mismatch for {pos.symbol}: Pos {quantity} | TP {total_tp_qty} | SL {total_sl_qty}")
+                        # Cancel all position orders to ensure clean slate
+                        self.strategy.client.cancel_all_position_orders(pos.symbol, position_side)
+                        has_tp = False
+                        has_sl = False
+                        # Clear DB IDs
+                        pos.tp_order_id = None
+                        pos.sl_order_id = None
+                        db.commit()
 
                     # Use original TP/SL values if available
                     tp_usdt = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
