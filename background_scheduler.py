@@ -349,9 +349,10 @@ class PositionMonitor:
                         pos.sl_order_id = None
                         db.commit()
 
-                    # Use original TP/SL values if available
-                    tp_usdt = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
-                    sl_usdt = pos.original_sl_usdt if pos.original_sl_usdt is not None else pos.sl_usdt
+                    # Use CURRENT TP/SL values from DB (this respects Recovery updates)
+                    # Do NOT fallback to original_tp_usdt here, because if recovery changed the TP, we want to Keep it!
+                    tp_usdt = pos.tp_usdt
+                    sl_usdt = pos.sl_usdt
 
                     # Restore missing TP order
                     if not has_tp and tp_usdt:
@@ -586,9 +587,15 @@ class PositionMonitor:
                             logger.error(f"Invalid position info: {pos.symbol} {pos.side}")
                             continue
                         
-                        # TP/SL fiyatlarını hesapla (orijinal değerleri kullan)
-                        tp_usdt_for_reopen = pos.original_tp_usdt if pos.original_tp_usdt is not None else pos.tp_usdt
-                        sl_usdt_for_reopen = pos.original_sl_usdt if pos.original_sl_usdt is not None else pos.sl_usdt
+                        # TP/SL fiyatlarını hesapla
+                        # Logic:
+                        # 1. If recovery happened (count > 0), REVERT to original "User Definition"
+                        # 2. If NO recovery (count == 0), use the CURRENT value (which might have been edited by user in UI)
+                        
+                        recovery_happened = (pos.recovery_count and pos.recovery_count > 0)
+                        
+                        tp_usdt_for_reopen = pos.original_tp_usdt if (recovery_happened and pos.original_tp_usdt is not None) else pos.tp_usdt
+                        sl_usdt_for_reopen = pos.original_sl_usdt if (recovery_happened and pos.original_sl_usdt is not None) else pos.sl_usdt
 
                         tp_price, sl_price = self.strategy.calculate_tp_sl_prices(
                             entry_price=new_entry_price,
@@ -641,6 +648,9 @@ class PositionMonitor:
                         # Reset TP/SL to original values (not recovery values)
                         pos.tp_usdt = tp_usdt_for_reopen
                         pos.sl_usdt = sl_usdt_for_reopen
+                        # Sync "Original" to match the start of this new cycle
+                        pos.original_tp_usdt = tp_usdt_for_reopen
+                        pos.original_sl_usdt = sl_usdt_for_reopen
                         
                         db.commit()
                         

@@ -119,6 +119,29 @@ class OKXTestnetClient:
             logger.warning(f"Failed to initialize OKX APIs: {e}")
             self._reset_apis()
     
+    def _execute_with_retry(self, api_func, *args, **kwargs):
+        """Execute an API call with retry logic for network errors"""
+        retries = 3
+        delay = 0.5
+        
+        for attempt in range(retries):
+            try:
+                return api_func(*args, **kwargs)
+            except Exception as e:
+                # Check for socket/network errors
+                error_str = str(e).lower()
+                is_socket_error = "10035" in error_str or "socket" in error_str or "connection" in error_str or "timeout" in error_str
+                
+                if is_socket_error and attempt < retries - 1:
+                    import time
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    # Log only on the last couple of retries to avoid spamming for single glitches
+                    if attempt > 0:
+                        logger.warning(f"Network glitch, retrying... ({attempt+1}/{retries})")
+                    continue
+                raise e
+    
     def _reset_apis(self) -> None:
         """Reset all API instances to None"""
         self.account_api = None
@@ -448,7 +471,8 @@ class OKXTestnetClient:
         try:
             inst_id = self.convert_symbol_to_okx(symbol) if symbol else ''
             
-            result = self.trade_api.order_algos_list(
+            result = self._execute_with_retry(
+                self.trade_api.order_algos_list,
                 ordType=order_type,
                 instType='SWAP',
                 instId=inst_id
@@ -540,7 +564,11 @@ class OKXTestnetClient:
             return None
         try:
             inst_id = self.convert_symbol_to_okx(symbol)
-            result = self.account_api.get_positions(instType="SWAP", instId=inst_id)
+            result = self._execute_with_retry(
+                self.account_api.get_positions,
+                instType="SWAP", 
+                instId=inst_id
+            )
             
             if result.get('code') == '0' and result.get('data'):
                 for pos in result['data']:
