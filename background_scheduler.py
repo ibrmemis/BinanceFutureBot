@@ -302,16 +302,25 @@ class PositionMonitor:
                             is_tp = False
                             is_sl = False
                             
-                            if pos.side == "LONG":
-                                if trigger_px > entry_price:
-                                    is_tp = True
-                                elif trigger_px < entry_price:
-                                    is_sl = True
-                            else:  # SHORT
-                                if trigger_px < entry_price:
-                                    is_tp = True
-                                elif trigger_px > entry_price:
-                                    is_sl = True
+                            algo_id = order.get('algoId')
+                            
+                            # PRIORITIZE DB ID MATCHING
+                            if algo_id and algo_id == pos.tp_order_id:
+                                is_tp = True
+                            elif algo_id and algo_id == pos.sl_order_id:
+                                is_sl = True
+                            else:
+                                # Fallback to price comparison if ID not known (or manual order)
+                                if pos.side == "LONG":
+                                    if trigger_px > entry_price:
+                                        is_tp = True
+                                    elif trigger_px < entry_price:
+                                        is_sl = True
+                                else:  # SHORT
+                                    if trigger_px < entry_price:
+                                        is_tp = True
+                                    elif trigger_px > entry_price:
+                                        is_sl = True
                             
                             if is_tp:
                                 total_tp_qty += order_qty
@@ -373,7 +382,7 @@ class PositionMonitor:
                                 side=close_side,
                                 posSide=position_side,
                                 ordType="trigger",
-                                sz=str(int(quantity)),
+                                sz=str(quantity),
                                 triggerPx=formatted_tp,
                                 orderPx="-1"
                             )
@@ -413,7 +422,7 @@ class PositionMonitor:
                                 side=close_side,
                                 posSide=position_side,
                                 ordType="trigger",
-                                sz=str(int(quantity)),
+                                sz=str(quantity),
                                 triggerPx=formatted_sl,
                                 orderPx="-1"
                             )

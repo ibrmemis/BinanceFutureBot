@@ -1,6 +1,13 @@
+import sys
 import logging
 import os
-import sys
+
+# Force stdout to be line-buffered if possible
+try:
+    if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 from pathlib import Path
 
 class FlushStreamHandler(logging.StreamHandler):
@@ -9,8 +16,11 @@ class FlushStreamHandler(logging.StreamHandler):
     This ensures logs appear immediately in the console/terminal.
     """
     def emit(self, record):
-        super().emit(record)
-        self.flush()
+        try:
+            super().emit(record)
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 def setup_logger(name: str = "trading_bot", log_level: int = logging.INFO) -> logging.Logger:
     """

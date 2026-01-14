@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import init_db, SessionLocal, APICredentials
-from database_utils import DatabaseManager
+from database_utils import DatabaseManager, get_db_session
 from background_scheduler import get_monitor, stop_monitor, start_monitor
 from constants import (
     UIConstants, DatabaseConstants, TradingConstants, EnvVars
@@ -52,7 +52,7 @@ def main():
             st.session_state.auto_reopen_delay_minutes = TradingConstants.DEFAULT_RECOVERY_DELAY
             DatabaseManager.set_setting(DatabaseConstants.SETTING_AUTO_REOPEN_DELAY, str(TradingConstants.DEFAULT_RECOVERY_DELAY))
     
-    with SessionLocal() as db:
+    with get_db_session() as db:
         creds_check = db.query(APICredentials).first()
         is_demo_mode = not creds_check or creds_check.is_demo
     
@@ -64,29 +64,22 @@ def main():
     with st.sidebar:
         st.markdown("#### 🔐 Hesap")
         
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             creds = db.query(APICredentials).first()
             current_mode = "demo" if (not creds or creds.is_demo) else "real"
-        finally:
-            db.close()
         
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🧪", type="primary" if current_mode == "demo" else "secondary", use_container_width=True, key="btn_demo", help="Demo Mode"):
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     creds = db.query(APICredentials).first()
                     if creds:
                         creds.is_demo = True
                         db.commit()
                         st.rerun()
-                finally:
-                    db.close()
         with col2:
             if st.button("💰", type="primary" if current_mode == "real" else "secondary", use_container_width=True, key="btn_real", help="Real Mode"):
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     creds = db.query(APICredentials).first()
                     if creds:
                         creds.is_demo = False
@@ -94,8 +87,6 @@ def main():
                         st.rerun()
                     else:
                         st.warning("API key gerekli")
-                finally:
-                    db.close()
         
         st.divider()
         st.markdown("#### 🤖 Bot")
@@ -138,22 +129,20 @@ def main():
             
             if st.button("Veritabanına Kaydet"):
                 if api_key_input and api_secret_input and passphrase_input:
-                    db = SessionLocal()
                     try:
-                        creds = db.query(APICredentials).first()
-                        if creds:
-                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                        else:
-                            creds = APICredentials()
-                            creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
-                            db.add(creds)
-                        db.commit()
+                        with get_db_session() as db:
+                            creds = db.query(APICredentials).first()
+                            if creds:
+                                creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
+                            else:
+                                creds = APICredentials()
+                                creds.set_credentials(api_key_input, api_secret_input, passphrase_input)
+                                db.add(creds)
+                            db.commit()
                         st.success("✅ API anahtarları veritabanına kaydedildi! Sayfa yenileniyor...")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Hata: {e}")
-                    finally:
-                        db.close()
                 else:
                     st.warning("Lütfen tüm alanları doldurun.")
         return

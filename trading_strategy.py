@@ -371,115 +371,111 @@ class TradingStrategy:
         Returns: (success, message)
         """
         
-        db = SessionLocal()
         try:
-            pos = db.query(Position).filter(Position.id == position_db_id).first()
-            if not pos:
-                return False, "Position not found"
-            
-            if not pos.is_open:
-                return False, "Position is not open"
-            
-            symbol = str(pos.symbol)
-            side = str(pos.side)
-            leverage = int(pos.leverage)
-            position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
-            
-            # Verify position exists on OKX before proceeding
-            okx_pos_check = self.client.get_position(symbol, position_side)
-            if not okx_pos_check or abs(float(okx_pos_check.get('positionAmt', 0))) == 0:
-                return False, "Position not found on OKX or closed"
-            
-            logger.info(f"🔄 RECOVERY starting: {symbol} {side} | DB ID: {position_db_id}")
-            
-            # Step 1: Cancel all TP/SL orders for this position
-            cancelled_count = self.client.cancel_all_position_orders(symbol, position_side)
-            logger.info(f"✂️ {cancelled_count} orders cancelled")
-            
-            # Step 2: Get current price and calculate add quantity
-            current_price = self.client.get_symbol_price(symbol)
-            if not current_price:
-                return False, "Price not available"
-            
-            add_quantity = self.calculate_quantity_for_usdt(add_amount_usdt, leverage, current_price, symbol)
-            if add_quantity < 0.01:
-                return False, "Add amount too low (min 0.01 contracts)"
-            
-            # Step 3: Add to position
-            order_result = self.client.add_to_position(symbol, side, add_quantity, position_side)
-            if not order_result:
-                return False, "Failed to add to position"
-            
-            logger.info(f"➕ {add_quantity} contracts added ({add_amount_usdt} USDT)")
-            
-            time.sleep(2)
-            
-            # Step 4: Get updated position info from OKX
-            okx_pos = self.client.get_position(symbol, position_side)
-            if not okx_pos:
-                return False, "Failed to get updated position info"
-            
-            new_entry_price = float(okx_pos.get('entryPrice', 0))
-            new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
-            new_pos_id = okx_pos.get('posId')
-            
-            if new_quantity == 0:
-                return False, "Position quantity is 0"
-            
-            # Step 5: Calculate new TP/SL prices based on updated position
-            tp_price, sl_price = self.calculate_tp_sl_prices(
-                entry_price=new_entry_price,
-                side=side,
-                tp_usdt=new_tp_usdt,
-                sl_usdt=new_sl_usdt,
-                quantity=new_quantity,
-                symbol=symbol
-            )
-            
-            time.sleep(1)
-            
-            # Step 6: Place new TP/SL orders
-            tp_order_id, sl_order_id = self.client.place_tp_sl_orders(
-                symbol=symbol,
-                side=side,
-                quantity=new_quantity,
-                entry_price=new_entry_price,
-                tp_price=tp_price,
-                sl_price=sl_price,
-                position_side=position_side
-            )
-            
-            # Step 7: Update database record
-            original_amount = float(pos.amount_usdt)
-            
-            # Update position fields
-            pos.entry_price = new_entry_price
-            pos.quantity = new_quantity
-            pos.position_id = new_pos_id
-            pos.tp_usdt = new_tp_usdt
-            pos.sl_usdt = new_sl_usdt
-            pos.tp_order_id = tp_order_id
-            pos.sl_order_id = sl_order_id
-            
-            # Update recovery tracking
-            current_recovery_count = pos.recovery_count or 0
-            pos.recovery_count = current_recovery_count + 1
-            pos.last_recovery_at = datetime.now(timezone.utc)
-            
-            db.commit()
-            
-            msg = f"✅ RECOVERY #{current_recovery_count + 1} completed: {symbol} {side} | Start: ${original_amount:.2f} | Added: ${add_amount_usdt:.2f} | Entry: ${new_entry_price:.4f} | Qty: {new_quantity}"
-            logger.info(msg)
-            
-            return True, msg
-            
+            with get_db_session() as db:
+                pos = db.query(Position).filter(Position.id == position_db_id).first()
+                if not pos:
+                    return False, "Position not found"
+                
+                if not pos.is_open:
+                    return False, "Position is not open"
+                
+                symbol = str(pos.symbol)
+                side = str(pos.side)
+                leverage = int(pos.leverage)
+                position_side = str(pos.position_side) if pos.position_side else ("long" if side == "LONG" else "short")
+                
+                # Verify position exists on OKX before proceeding
+                okx_pos_check = self.client.get_position(symbol, position_side)
+                if not okx_pos_check or abs(float(okx_pos_check.get('positionAmt', 0))) == 0:
+                    return False, "Position not found on OKX or closed"
+                
+                logger.info(f"🔄 RECOVERY starting: {symbol} {side} | DB ID: {position_db_id}")
+                
+                # Step 1: Cancel all TP/SL orders for this position
+                cancelled_count = self.client.cancel_all_position_orders(symbol, position_side)
+                logger.info(f"✂️ {cancelled_count} orders cancelled")
+                
+                # Step 2: Get current price and calculate add quantity
+                current_price = self.client.get_symbol_price(symbol)
+                if not current_price:
+                    return False, "Price not available"
+                
+                add_quantity = self.calculate_quantity_for_usdt(add_amount_usdt, leverage, current_price, symbol)
+                if add_quantity < 0.01:
+                    return False, "Add amount too low (min 0.01 contracts)"
+                
+                # Step 3: Add to position
+                order_result = self.client.add_to_position(symbol, side, add_quantity, position_side)
+                if not order_result:
+                    return False, "Failed to add to position"
+                
+                logger.info(f"➕ {add_quantity} contracts added ({add_amount_usdt} USDT)")
+                
+                time.sleep(2)
+                
+                # Step 4: Get updated position info from OKX
+                okx_pos = self.client.get_position(symbol, position_side)
+                if not okx_pos:
+                    return False, "Failed to get updated position info"
+                
+                new_entry_price = float(okx_pos.get('entryPrice', 0))
+                new_quantity = abs(float(okx_pos.get('positionAmt', 0)))
+                new_pos_id = okx_pos.get('posId')
+                
+                if new_quantity == 0:
+                    return False, "Position quantity is 0"
+                
+                # Step 5: Calculate new TP/SL prices based on updated position
+                tp_price, sl_price = self.calculate_tp_sl_prices(
+                    entry_price=new_entry_price,
+                    side=side,
+                    tp_usdt=new_tp_usdt,
+                    sl_usdt=new_sl_usdt,
+                    quantity=new_quantity,
+                    symbol=symbol
+                )
+                
+                time.sleep(1)
+                
+                # Step 6: Place new TP/SL orders
+                tp_order_id, sl_order_id = self.client.place_tp_sl_orders(
+                    symbol=symbol,
+                    side=side,
+                    quantity=new_quantity,
+                    entry_price=new_entry_price,
+                    tp_price=tp_price,
+                    sl_price=sl_price,
+                    position_side=position_side
+                )
+                
+                # Step 7: Update database record
+                original_amount = float(pos.amount_usdt)
+                
+                # Update position fields
+                pos.entry_price = new_entry_price
+                pos.quantity = new_quantity
+                pos.position_id = new_pos_id
+                pos.tp_usdt = new_tp_usdt
+                pos.sl_usdt = new_sl_usdt
+                pos.tp_order_id = tp_order_id
+                pos.sl_order_id = sl_order_id
+                
+                # Update recovery tracking
+                current_recovery_count = pos.recovery_count or 0
+                pos.recovery_count = current_recovery_count + 1
+                pos.last_recovery_at = datetime.now(timezone.utc)
+                
+                db.commit()
+                
+                msg = f"✅ RECOVERY #{current_recovery_count + 1} completed: {symbol} {side} | Start: ${original_amount:.2f} | Added: ${add_amount_usdt:.2f} | Entry: ${new_entry_price:.4f} | Qty: {new_quantity}"
+                logger.info(msg)
+                
+                return True, msg
+                
         except Exception as e:
-            db.rollback()
             error_msg = f"Recovery error: {e}"
             logger.error(f"❌ {error_msg}")
             return False, error_msg
-        finally:
-            db.close()
 
-# Backward compatibility alias
-Try1Strategy = TradingStrategy
+

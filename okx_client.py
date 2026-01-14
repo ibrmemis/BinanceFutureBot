@@ -20,17 +20,35 @@ def handle_okx_response(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            result = func(*args, **kwargs)
-            if isinstance(result, dict) and result.get('code') == '0':
-                return result.get('data')
-            elif isinstance(result, dict):
-                logger.error(f"OKX API Error in {func.__name__}: {result.get('msg', 'Unknown error')}")
-                return None
-            return result
-        except Exception as e:
-            logger.exception(f"Exception in {func.__name__}: {e}")
-            return None
+        retries = 3
+        delay = 1
+        
+        for attempt in range(retries):
+            try:
+                result = func(*args, **kwargs)
+                if isinstance(result, dict) and result.get('code') == '0':
+                    return result.get('data')
+                elif isinstance(result, dict):
+                    # Don't retry on API logic errors (like invalid symbol), only connection stuff
+                    # But since we can't easily distinguish, we log error and return None
+                    if attempt == retries - 1:
+                        logger.error(f"OKX API Error in {func.__name__}: {result.get('msg', 'Unknown error')}")
+                    return None
+                return result
+            except Exception as e:
+                is_socket_error = "10035" in str(e) or "socket" in str(e).lower() or "connection" in str(e).lower()
+                
+                if is_socket_error and attempt < retries - 1:
+                    import time
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                    logger.warning(f"Retrying {func.__name__} due to error: {e}")
+                    continue
+                
+                if attempt == retries - 1:
+                    logger.exception(f"Exception in {func.__name__}: {e}")
+                    return None
+        return None
     return wrapper
 
 class OKXTestnetClient:
