@@ -109,6 +109,7 @@ def show_new_trade_page():
                         position = Position(
                             symbol=symbol, side=side, amount_usdt=amount_usdt,
                             leverage=leverage, tp_usdt=tp_usdt, sl_usdt=sl_usdt,
+                            original_tp_usdt=tp_usdt, original_sl_usdt=sl_usdt,
                             entry_price=current_price, quantity=0.0, order_id=None,
                             position_id=None, position_side=position_side,
                             tp_order_id=None, sl_order_id=None, is_open=False, parent_position_id=None
@@ -136,15 +137,21 @@ def show_new_trade_page():
             # Prepare data for editor
             data = []
             for p in positions:
+                # Use original values for display if they exist, otherwise current
+                # This ensures that even if recovery changes the active TP/SL, the user sees their configured values
+                display_tp = p.original_tp_usdt if p.original_tp_usdt is not None else p.tp_usdt
+                display_sl = p.original_sl_usdt if p.original_sl_usdt is not None else p.sl_usdt
+                
                 data.append({
                     "id": p.id,
                     "symbol": p.symbol,
                     "side": p.side,
                     "leverage": p.leverage,
                     "amount_usdt": float(p.amount_usdt),
-                    "tp_usdt": float(p.tp_usdt),
-                    "sl_usdt": float(p.sl_usdt),
+                    "tp_usdt": float(display_tp),
+                    "sl_usdt": float(display_sl),
                     "is_open": p.is_open,
+                    "recovery_count": p.recovery_count if p.recovery_count else 0,
                     "delete": False
                 })
             
@@ -155,6 +162,7 @@ def show_new_trade_page():
                 width="stretch",
                 hide_index=True,
                 key="positions_editor",
+                column_order=["id", "symbol", "side", "leverage", "amount_usdt", "tp_usdt", "sl_usdt", "is_open", "delete"],
                 column_config={
                     "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
                     "symbol": st.column_config.TextColumn("Coin", disabled=True, width="small"),
@@ -185,12 +193,27 @@ def show_new_trade_page():
                     
                     # Check for updates
                     updates = {}
+                    # Use original_row for recovery_count as it might be hidden in the editor view
+                    is_in_recovery = original_row['recovery_count'] > 0
+                    
                     if row['amount_usdt'] != original_row['amount_usdt']:
                         updates['amount_usdt'] = row['amount_usdt']
+                    
                     if row['tp_usdt'] != original_row['tp_usdt']:
-                        updates['tp_usdt'] = row['tp_usdt']
+                        # Always update the "original" (configured) value
+                        updates['original_tp_usdt'] = row['tp_usdt']
+                        # Only update the active TP if NOT in recovery
+                        # If in recovery, the active TP is controlled by the recovery logic
+                        if not is_in_recovery:
+                            updates['tp_usdt'] = row['tp_usdt']
+                            
                     if row['sl_usdt'] != original_row['sl_usdt']:
-                        updates['sl_usdt'] = row['sl_usdt']
+                        # Always update the "original" (configured) value
+                        updates['original_sl_usdt'] = row['sl_usdt']
+                        # Only update the active SL if NOT in recovery
+                        if not is_in_recovery:
+                            updates['sl_usdt'] = row['sl_usdt']
+                            
                     if row['is_open'] != original_row['is_open']:
                         updates['is_open'] = row['is_open']
                         # If closing, set closed_at
