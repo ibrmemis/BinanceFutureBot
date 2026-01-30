@@ -128,16 +128,32 @@ def show_database_page():
         db.close()
 
     st.divider()
-    st.markdown("##### 🛠️ SQL")
-    st.warning("⚠️ **DİKKAT:** Bu bölüm doğrudan veritabanı sorguları çalıştırmanızı sağlar. Sadece ne yaptığınızdan eminseniz kullanın.")
+    st.markdown("##### 🛠️ SQL Konsolu")
+    st.warning("⚠️ **DİKKAT:** Bu bölüm doğrudan veritabanı sorguları çalıştırmanızı sağlar.")
     
-    with st.expander("📝 SQL Komutu Çalıştır"):
-        sql_input = st.text_area("SQL Sorgusu", placeholder="ALTER TABLE api_credentials ADD COLUMN ...", height=100)
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            run_sql = st.button("🚀 Çalıştır", type="primary")
+    # Initialize session state for logs if not exists
+    if "sql_logs" not in st.session_state:
+        st.session_state.sql_logs = []
+
+    col_sql, col_logs = st.columns([1, 1])
+    
+    with col_sql:
+        st.markdown("**Sorgu Girişi**")
+        sql_input = st.text_area("SQL Sorgusu", placeholder="ALTER SEQUENCE ... OWNER TO ...", height=150, label_visibility="collapsed")
+        
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            run_sql = st.button("🚀 Çalıştır", type="primary", use_container_width=True)
+            
+        with c2:
+            if st.button("🗑️ Logları Temizle", use_container_width=True):
+                st.session_state.sql_logs = []
+                st.rerun()
         
         if run_sql and sql_input:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
             db = SessionLocal()
             try:
                 # DML/DDL işlemleri için execute kullanıyoruz
@@ -146,18 +162,35 @@ def show_database_page():
                 # Eğer bir SELECT sorgusuysa sonuçları göster
                 if sql_input.strip().upper().startswith("SELECT"):
                     df = pd.DataFrame(result.fetchall(), columns=result.keys())
+                    st.session_state.sql_logs.insert(0, f"✅ [{timestamp}] SELECT: {len(df)} satır döndü.")
                     if not df.empty:
                         st.dataframe(df)
-                        st.success(f"✅ Sorgu başarılı! {len(df)} kayıt bulundu.")
                     else:
-                        st.info("ℹ️ Sorgu başarılı ancak sonuç dönmedi.")
+                        st.info("Sonuç yok.")
                 else:
                     db.commit()
-                    st.success("✅ SQL komutu başarıyla çalıştırıldı!")
-                    if result.rowcount > 0:
-                        st.info(f"ℹ️ Etkilenen satır sayısı: {result.rowcount}")
+                    row_count = result.rowcount
+                    msg = f"✅ [{timestamp}] Başarılı. Etkilenen satır: {row_count}"
+                    st.session_state.sql_logs.insert(0, msg)
+                    st.success(msg)
+                    
             except Exception as e:
                 db.rollback()
-                st.error(f"❌ SQL Hatası: {str(e)}")
+                err_msg = f"❌ [{timestamp}] Hata: {str(e)}"
+                st.session_state.sql_logs.insert(0, err_msg)
+                st.error(err_msg)
             finally:
                 db.close()
+                # Rerun to update logs immediately
+    
+    with col_logs:
+        st.markdown("**İşlem Geçmişi (Log)**")
+        log_container = st.container(height=300, border=True)
+        if st.session_state.sql_logs:
+            for log in st.session_state.sql_logs:
+                if "✅" in log:
+                    log_container.success(log)
+                else:
+                    log_container.error(log)
+        else:
+            log_container.info("Henüz işlem yapılmadı.")
