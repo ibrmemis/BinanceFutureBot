@@ -64,7 +64,7 @@ def show_database_page():
                 column_config=column_config,
                 num_rows="dynamic",
                 key=f"editor_{selected_table_name}",
-                use_container_width=True
+                width="stretch"
             )
             
             if st.button("💾 Değişiklikleri Kaydet", type="primary"):
